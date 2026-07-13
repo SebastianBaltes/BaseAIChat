@@ -140,6 +140,31 @@ func TestModelAllowlistRejectsUnlistedModel(t *testing.T) {
 	}
 }
 
+func TestModelListingWorksWithAnAllowlistSet(t *testing.T) {
+	// Inference is POST; GET is metadata. A GET names no model, so checking it
+	// against the allowlist would make "which models may I use?" unanswerable
+	// through the very proxy that decides the answer.
+	handler, _ := newTestProxy(t, Config{
+		Provider:      "openrouter",
+		AllowedModels: []string{"google/gemini-3-flash-preview"},
+	}, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"google/gemini-3-flash-preview"}]}`))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/models", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	req.Header.Set("X-Target-Path", "models")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "gemini-3-flash-preview") {
+		t.Errorf("model list was not forwarded: %s", rec.Body)
+	}
+}
+
 func TestUnknownModelIsRejectedWhenAllowlistIsSet(t *testing.T) {
 	handler, _ := newTestProxy(t, Config{
 		Provider:      "openrouter",

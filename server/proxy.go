@@ -217,11 +217,18 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model := p.provider.modelOf(targetPath, body)
-	if !modelAllowed(p.cfg.AllowedModels, model) {
-		p.log.Warn("aichat: model rejected", "model", model, "path", targetPath)
-		writeError(w, http.StatusForbidden, fmt.Sprintf("model %q is not allowed", model))
-		return
+	// The allowlist guards inference, and every provider here does inference over
+	// POST; GET is for metadata, above all listing the models. Checking GET would
+	// mean a client cannot ask the proxy which models it permits – the request
+	// names no model, so a set allowlist would reject it. That made the one
+	// recipe an integrator needs ("what may I use?") impossible.
+	if r.Method == http.MethodPost {
+		model := p.provider.modelOf(targetPath, body)
+		if !modelAllowed(p.cfg.AllowedModels, model) {
+			p.log.Warn("aichat: model rejected", "model", model, "path", targetPath)
+			writeError(w, http.StatusForbidden, fmt.Sprintf("model %q is not allowed", model))
+			return
+		}
 	}
 
 	upstream, err := p.buildUpstreamRequest(r, targetPath, body)
@@ -233,7 +240,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := p.client.Do(upstream)
 	if err != nil {
-		p.log.Error("aichat: upstream failed", "err", err, "model", model)
+		p.log.Error("aichat: upstream failed", "err", err, "path", targetPath)
 		writeError(w, http.StatusBadGateway, "upstream request failed")
 		return
 	}

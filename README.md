@@ -407,6 +407,17 @@ Dieselbe API-Beschreibung geht zusätzlich als `toolDescription` an das evaluate
 **echtes TypeScript** — der Compiler prüft sie mit — und gleichzeitig die Doku für das Modell.
 Damit kann Code und Beschreibung nicht auseinanderdriften.
 
+> **Die Beschreibung ist keine Dokumentation, sie ist eine Spezifikation.**
+>
+> Das Modell kann nur benutzen, was dort steht — und es benutzt *exakt* das. Ein erfundenes
+> Beispiel in dieser Datei ist deshalb kein Stilfehler, sondern ein Bug. Und ein besonders
+> tückischer: Er äußert sich als *Modellfehler*. Das Modell kopiert dein falsches Beispiel
+> gehorsam, der Code scheitert, und du suchst den Fehler beim LLM statt in deiner Datei.
+>
+> In der FieldDraft-Integration ist genau das passiert: ein Beispiel mit einer Signatur, die es
+> so nie gab. Das Modell hat sie treu übernommen. **Schreib die Beispiele nicht aus dem Kopf —
+> kopier sie aus echtem, laufendem Code.**
+
 ```mermaid
 graph LR
     I["instructions.md"] --> SP["System-Prompt"]
@@ -754,8 +765,15 @@ mux.Handle("/aichat/", http.StripPrefix("/aichat", proxy))
 
 * **Model-Allowlist.** Ohne sie kann der Client dein teuerstes Modell wählen — der Request kommt
   ja aus dem Browser. Bei Google steht das Modell im Pfad, bei den anderen im JSON-Body; der Proxy
-  liest beides. **Ein Request, dessen Modell sich nicht bestimmen lässt, wird abgelehnt**, sobald
-  eine Allowlist gesetzt ist — sonst könnte man sie umgehen, indem man das Modell woanders versteckt.
+  liest beides. **Ein POST, dessen Modell sich nicht bestimmen lässt, wird abgelehnt**, sobald eine
+  Allowlist gesetzt ist — sonst könnte man sie umgehen, indem man das Modell woanders versteckt.
+  Geprüft wird nur POST, denn dort findet Inferenz statt; GET ist Metadaten. Deshalb kannst du dir
+  die Modellliste durch deinen eigenen Proxy ziehen, auch mit gesetzter Allowlist:
+
+  ```bash
+  curl -s -H 'X-Target-Path: models' http://localhost:8090/aichat/models \
+    | jq '.data[] | select(.supported_parameters | index("tools")) | {id, pricing}'
+  ```
 * **Auth-Hook.** Läuft vor allem anderen. Ohne ihn ist der Proxy für jeden offen, der ihn erreicht.
 * **Rate-Limit.** Fixed Window pro Client-Key, alte Buckets werden weggeräumt. `X-Forwarded-For`
   wird nur bei `TrustForwardedFor` beachtet — sonst könnte jeder Client das Limit durch einen
