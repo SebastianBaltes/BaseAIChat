@@ -16,6 +16,7 @@ API, API-Beschreibung, Instructions.
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | **evaluate-Pattern**            | Ein einziges Tool statt 20 Tool-Schemas. Das Modell schreibt JavaScript gegen deine API — mit Schleifen, Filtern, Aggregation.    |
 | **AST-Guard**                   | Jeder generierte Code wird vor der Ausführung statisch geprüft — Sandbox-Escapes und Exfiltrationskanäle fliegen raus, bevor ein Statement läuft.  |
+| **Skript-Guard**                | Der Agent darf Skripte für die Skriptsprache der App schreiben (TypeScript, Klassen) — mit denselben Blocklisten.                  |
 | **UI-Awareness**                | Der Agent sieht die sichtbare Oberfläche (`data-*`-Attribute) und kann Buttons klicken, Felder füllen, Optionen wählen.           |
 | **Runtime-Types**               | Die API-Beschreibung wird vor jedem Turn mit echten Werten angereichert: `status: string` → `status: "todo" \| "done"`.           |
 | **Token-Streaming**             | Antworten erscheinen Token für Token; Tool-Calls werden live sichtbar.                                                            |
@@ -32,7 +33,7 @@ API, API-Beschreibung, Instructions.
 | Backend       | Go (nur Stdlib, keine Dependencies)                                 |
 | Frontend      | React 18/19, TypeScript                                             |
 | LLM-Anbindung | Vercel AI SDK v6 (`ai`, `@ai-sdk/*`, `@openrouter/ai-sdk-provider`) |
-| Code-Analyse  | acorn (AST-Parser, \~35 kB, keine Dependencies)                     |
+| Code-Analyse  | acorn (+ acorn-typescript für den Skript-Guard)                     |
 | Rendering     | marked + DOMPurify                                                  |
 | Tests         | `go test`, Vitest (+ jsdom)                                         |
 
@@ -233,6 +234,13 @@ ersten Statement.
 API nicht** — und muss sie nicht kennen: Er beschränkt *Sprachkonstrukte*, nicht das Vokabular
 deiner Anwendung.
 
+Zwei Einstiegspunkte, dieselben Regeln:
+
+| | Für | Besonderheit |
+| --- | --- | --- |
+| `guardCode(source)` | den Code des `evaluate`-Tools | JavaScript, `this` verboten |
+| `guardScript(source)` | Skripte, die der Agent für deine Skript-Umgebung schreibt | TypeScript, Klassen und `this` erlaubt — [siehe unten](#skripte-die-der-agent-schreibt--guardscript) |
+
 | Liste | Was sie blockiert | Beispiele |
 | --- | --- | --- |
 | **Knotentypen** | Konstrukte, die den Scope umgehen | `this` (→ `globalThis`), `import()`, `import.meta`, `with`, Tagged Templates, `debugger` |
@@ -315,7 +323,52 @@ createEvaluator({
 `guard.test.ts` deckt legitime Muster ab, die das Modell tatsächlich schreibt (Schleifen,
 Destructuring, async, tiefe und dynamische API-Bäume), dazu Sandbox-Escapes, jeden
 Exfiltrationskanal, Obfuscation, Scope-Shadowing und die Limits. Zusammen mit Evaluator,
-Runtime-Types und UI-Helfern: **53 Unit-Tests**, plus 11 Proxy-Tests auf Go-Seite.
+Runtime-Types und UI-Helfern: **81 Unit-Tests**, plus 11 Proxy-Tests auf Go-Seite.
+
+### Skripte, die der Agent schreibt — `guardScript()`
+
+Hat deine App eine Skriptsprache, willst du früher oder später, dass der Agent sie *schreibt* —
+nicht nur die API bedient. Dieser Quelltext ist typischerweise TypeScript mit Klassen, und
+`guardCode()` würde ihn komplett ablehnen: Es parst reines JavaScript und blockt `this`.
+
+`guardScript()` ist derselbe Guard für diesen Fall: **TypeScript-Parsing, Klassen und `this`
+erlaubt — dieselben Blocklisten.** Kein `window`, kein `fetch`, kein `eval`, kein
+`import()`.
+
+```ts
+import { guardScript } from "baseaichat";
+
+const verdict = guardScript(source, {
+  allowImportsFrom: ["@myapp/script-std"],   // alles andere: kein import
+  extraBlocked: ["__appStore", "__kernel"],  // eigene Debug-Globals versiegeln
+});
+
+if (!verdict.ok) {
+  // Geht zurück ans Modell – es korrigiert und schickt neu.
+  return `Rejected${verdict.at ? ` (Zeile ${verdict.at.line})` : ""}: ${verdict.reason}`;
+}
+await runInScriptRuntime(source);
+```
+
+**Eine Bedingung, und sie ist nicht verhandelbar: Der Host muss das Skript im _strict mode_
+ausführen** — als ES-Modul oder hinter einem `"use strict"`-Prolog. Im sloppy mode bindet ein
+gewöhnlicher Funktionsaufruf `this` an `globalThis`, und `this.fetch(...)` spaziert an der
+gesamten Blocklist vorbei. Ohne strict mode ist `guardScript` wertlos.
+
+Zwei Eigenschaften, auf die du dich verlassen kannst:
+
+* **Typen sind keine Referenzen.** `function f(target: Document)` ist erlaubt — der Typ wird
+  wegkompiliert. `const d = document` im Wertkontext bleibt verboten. Getestet gegen die Stellen,
+  an denen sich Code in TypeScript verstecken lässt: Parameter-Properties, Enum-Initializer,
+  Decorator, Static-Blocks, `as`, `!`, berechnete Klassen-Keys.
+* **Was der Parser nicht lesen kann, wird abgelehnt** — nie ungeprüft durchgewunken. Konkret:
+  `acorn-typescript` kennt den `satisfies`-Operator nicht; solche Skripte scheitern mit einem
+  Syntaxfehler. Eine Falschablehnung, kein Loch.
+
+Und die ehrliche Einordnung: Der Guard beschränkt das **Vokabular** des Skripts, nicht die
+**Macht deiner Skript-Laufzeit**. Was deine Skriptumgebung darf, darf auch das Skript des
+Agenten. Das ist ein bewusst eingegangenes Risiko — zeig dem Nutzer das Skript, bevor es läuft,
+und lass es ihn bestätigen.
 
 ### Grenzen — was der Guard *nicht* leistet
 
@@ -331,9 +384,9 @@ Sei hier ehrlich mit dir selbst, sonst baust du auf einer Illusion:
   Undo-Checkpoint, damit ein missratener Turn ein Ctrl+Z ist.
 * **Jeder andere Ausführungspfad in deiner App führt am Guard vorbei.** Hat deine Anwendung eine
   Skriptsprache, ein Plugin-System oder sonst irgendetwas, das Code ausführt, und darf das Modell
-  darauf schreiben, dann ist der Guard dort schlicht nicht zuständig. Schick solchen Code
-  ebenfalls durch `guardCode()` — oder lass ihn nur nach ausdrücklicher Bestätigung des Nutzers
-  laufen.
+  darauf schreiben, dann ist der Guard dort erst zuständig, wenn du ihn hinschickst: siehe
+  `guardScript()`. Und selbst dann beschränkt er nur das Vokabular des Skripts — nicht das, was
+  deine Skript-Laufzeit kann.
 * **Endlosschleifen frieren den Tab ein.** Der Code teilt sich den Main-Thread mit der App (er
   braucht synchronen Zugriff auf Store und DOM). Der Timeout greift nur bei asynchronen Hängern —
   `while (true) {}` läuft im selben Thread wie der Timer.
@@ -895,7 +948,7 @@ export const agentOptions = (): ChatAgentOptions => {
 ```bash
 cd server && go test -race ./...     # 11 Tests: Key-Injection, Allowlist, Rate-Limit,
                                      # Body-Limit, Traversal, Auth-Hook, SSE-Flushing
-cd web    && npx vitest run          # 53 Tests: Guard, Evaluator, Runtime-Types, UI-Helfer
+cd web    && npx vitest run          # 81 Tests: Guard, Skript-Guard, Evaluator, Runtime-Types, UI
 cd web    && npx tsc --noEmit        # Typecheck der Lib
 ```
 

@@ -25,8 +25,8 @@
 // The tool loop: guarded execution of model-written code.
 export { createEvaluator } from "./core/evaluator";
 export type { Evaluator, EvaluatorOptions } from "./core/evaluator";
-export { guardCode } from "./core/guard";
-export type { GuardOptions, GuardResult } from "./core/guard";
+export { guardCode, guardScript } from "./core/guard";
+export type { GuardOptions, GuardResult, ScriptGuardOptions } from "./core/guard";
 
 // Prompt building.
 export { expandRuntimeTypes } from "./core/runtimeTypes";

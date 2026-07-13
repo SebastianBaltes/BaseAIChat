@@ -29,7 +29,12 @@ Architektur, Sicherheitsmodell und Integrationsanleitung stehen in `README.md`.
   API ist oft ein tiefer, dynamischer Objektbaum. Änderungen hier immer mit
   `guard.test.ts` absichern; die Escape-Tests sind kein Beiwerk.
 - `with (api)` ist Ergonomie, keine Sandbox. Eine Blocklist ist unvollständig — jeder
-  weitere Ausführungspfad der App (Skriptsprache, Plugin-Eval) führt am Guard vorbei.
+  weitere Ausführungspfad der App (Skriptsprache, Plugin-Eval) führt am Guard vorbei,
+  bis man ihn hinschickt.
+- `guardScript()` prüft Skripte, die der Agent für die Skriptsprache der Host-App schreibt:
+  TypeScript, Klassen und `this` erlaubt, gleiche Blocklisten, Imports nur per Allowlist.
+  **Bedingung: Der Host muss das Skript im strict mode ausführen** (ES-Modul oder
+  `"use strict"`). Sonst ist `this` = `globalThis` und die Blocklist wertlos.
 - Der ausgeführte Code läuft auf dem Main-Thread. Endlosschleifen frieren den Tab ein
   (der Timeout greift nur bei async). Keine destruktiven Operationen in die API legen,
   die man dem Nutzer nicht auch erlauben würde.
@@ -38,7 +43,7 @@ Architektur, Sicherheitsmodell und Integrationsanleitung stehen in `README.md`.
 
 ```bash
 cd server && go test -race ./...      # Proxy-Tests
-cd web    && npx vitest run           # 53 Unit-Tests (Node 22 via nvm nötig)
+cd web    && npx vitest run           # 81 Unit-Tests (Node 22 via nvm nötig)
 cd web    && npx tsc --noEmit         # Typecheck der Lib
 cd example && npm run dev             # Demo (Proxy muss auf :8090 laufen)
 

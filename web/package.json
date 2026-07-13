@@ -25,6 +25,7 @@
     "@ai-sdk/openai": "^3.0.41",
     "@openrouter/ai-sdk-provider": "^2.3.1",
     "acorn": "^8.14.0",
+    "acorn-typescript": "^1.4.13",
     "ai": "^6.0.68",
     "dompurify": "^3.3.3",
     "marked": "^17.0.5"
