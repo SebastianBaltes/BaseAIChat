@@ -1,3 +1,3 @@
-module github.com/sorokan/baseaichat/server
+module github.com/SebastianBaltes/BaseAIChat/server
 
 go 1.26.1

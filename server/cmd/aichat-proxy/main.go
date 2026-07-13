@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	aichat "github.com/sorokan/baseaichat/server"
+	aichat "github.com/SebastianBaltes/BaseAIChat/server"
 )
 
 func main() {

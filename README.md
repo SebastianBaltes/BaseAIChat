@@ -8,35 +8,35 @@ Gedacht als Baustein, den man in mehrere Apps einhängt (z. B. FieldDraft): Back
 `http.Handler`, Frontend als React-Komponente. Was pro App neu entsteht, sind drei Dateien —
 API, API-Beschreibung, Instructions.
 
----
+***
 
 ## Features auf einen Blick
 
-| Feature | Was es bedeutet |
-| --- | --- |
-| **evaluate-Pattern** | Ein einziges Tool statt 20 Tool-Schemas. Das Modell schreibt JavaScript gegen deine API — mit Schleifen, Filtern, Aggregation. |
-| **AST-Guard (Allowlist)** | Jeder generierte Code wird vor der Ausführung statisch geprüft. Unbekannte Globale werden abgelehnt, nicht nur bekannte verboten. |
-| **UI-Awareness** | Der Agent sieht die sichtbare Oberfläche (`data-*`-Attribute) und kann Buttons klicken, Felder füllen, Optionen wählen. |
-| **Runtime-Types** | Die API-Beschreibung wird vor jedem Turn mit echten Werten angereichert: `status: string` → `status: "todo" \| "done"`. |
-| **Token-Streaming** | Antworten erscheinen Token für Token; Tool-Calls werden live sichtbar. |
-| **Auditierbare Tool-Aktivität** | Jeder ausgeführte Code steht aufklappbar im Chat. Der Nutzer sieht, warum sich seine App verändert hat. |
-| **Multi-Provider** | Google, OpenAI, Anthropic, OpenRouter. Der Wechsel ist ein Config-Wert. |
-| **Gehärteter Proxy** | API-Key serverseitig, Model-Allowlist, Rate-Limit, Auth-Hook, Body-Limit, Path-Traversal-Schutz, SSE-Flushing. |
-| **Vision** | Screenshots anhängen; bei Bildern wird automatisch auf das Vision-Modell umgeschaltet. |
-| **Prompt-Caching** | Der stabile Teil des Prompts (Instructions + API) wird vom Provider gecacht. |
+| Feature                         | Was es bedeutet                                                                                                                   |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **evaluate-Pattern**            | Ein einziges Tool statt 20 Tool-Schemas. Das Modell schreibt JavaScript gegen deine API — mit Schleifen, Filtern, Aggregation.    |
+| **AST-Guard (Allowlist)**       | Jeder generierte Code wird vor der Ausführung statisch geprüft. Unbekannte Globale werden abgelehnt, nicht nur bekannte verboten. |
+| **UI-Awareness**                | Der Agent sieht die sichtbare Oberfläche (`data-*`-Attribute) und kann Buttons klicken, Felder füllen, Optionen wählen.           |
+| **Runtime-Types**               | Die API-Beschreibung wird vor jedem Turn mit echten Werten angereichert: `status: string` → `status: "todo" \| "done"`.           |
+| **Token-Streaming**             | Antworten erscheinen Token für Token; Tool-Calls werden live sichtbar.                                                            |
+| **Auditierbare Tool-Aktivität** | Jeder ausgeführte Code steht aufklappbar im Chat. Der Nutzer sieht, warum sich seine App verändert hat.                           |
+| **Multi-Provider**              | Google, OpenAI, Anthropic, OpenRouter. Der Wechsel ist ein Config-Wert.                                                           |
+| **Gehärteter Proxy**            | API-Key serverseitig, Model-Allowlist, Rate-Limit, Auth-Hook, Body-Limit, Path-Traversal-Schutz, SSE-Flushing.                    |
+| **Vision**                      | Screenshots anhängen; bei Bildern wird automatisch auf das Vision-Modell umgeschaltet.                                            |
+| **Prompt-Caching**              | Der stabile Teil des Prompts (Instructions + API) wird vom Provider gecacht.                                                      |
 
 ## Technologie-Stack
 
-| Schicht | Technologie |
-| --- | --- |
-| Backend | Go (nur Stdlib, keine Dependencies) |
-| Frontend | React 18/19, TypeScript |
+| Schicht       | Technologie                                                         |
+| ------------- | ------------------------------------------------------------------- |
+| Backend       | Go (nur Stdlib, keine Dependencies)                                 |
+| Frontend      | React 18/19, TypeScript                                             |
 | LLM-Anbindung | Vercel AI SDK v6 (`ai`, `@ai-sdk/*`, `@openrouter/ai-sdk-provider`) |
-| Code-Analyse | acorn (AST-Parser, ~35 kB, keine Dependencies) |
-| Rendering | marked + DOMPurify |
-| Tests | `go test`, Vitest (+ jsdom) |
+| Code-Analyse  | acorn (AST-Parser, \~35 kB, keine Dependencies)                     |
+| Rendering     | marked + DOMPurify                                                  |
+| Tests         | `go test`, Vitest (+ jsdom)                                         |
 
----
+***
 
 ## Schnellstart
 
@@ -52,13 +52,13 @@ npm install && npm run dev      # → http://localhost:5180
 
 Die Demo ist ein Sprint-Board. Probier:
 
-- „Wie viel Arbeit ist noch offen?" → er liest das Board und rechnet
-- „Weis die unzugewiesenen Todos ada zu" → er ändert mehrere Tasks in einem Aufruf
-- „Zeig mir nur die erledigten" → er bedient den Filter in der Oberfläche
+* „Wie viel Arbeit ist noch offen?" → er liest das Board und rechnet
+* „Weis die unzugewiesenen Todos ada zu" → er ändert mehrere Tasks in einem Aufruf
+* „Zeig mir nur die erledigten" → er bedient den Filter in der Oberfläche
 
 **Node:** Vite 7 braucht Node ≥ 20. Falls das System-Node älter ist: `source ~/.nvm/nvm.sh && nvm use 22`.
 
----
+***
 
 ## Architektur
 
@@ -121,25 +121,25 @@ Tool-Loop da.
 
 ### Dateiübersicht
 
-| Pfad | Inhalt |
-| --- | --- |
-| `server/proxy.go` | Der Handler: Auth-Hook, Rate-Limit, Body-Limit, Model-Allowlist, Traversal-Schutz, SSE-Streaming |
-| `server/providers.go` | Provider-Registry (Base-URL, Auth-Stil, wo das Modell im Request steht) |
-| `server/ratelimit.go` | Fixed-Window-Limiter pro Client |
-| `server/cmd/aichat-proxy/` | Standalone-Binary für die lokale Entwicklung |
-| `web/src/core/guard.ts` | **Die Sicherheitsgrenze.** AST-Analyse mit scope-bewusster Allowlist |
-| `web/src/core/evaluator.ts` | Der Executor mit den 5 Schichten |
-| `web/src/core/runtimeTypes.ts` | `@values`-Annotationen → konkrete Union-Typen |
-| `web/src/core/roundValues.ts` | Zahlen runden, bevor sie ins Kontextfenster wandern |
-| `web/src/browser/uiState.ts` | `readUIState()` — DOM lesen |
-| `web/src/browser/uiActions.ts` | `createUIActions()` — DOM bedienen |
-| `web/src/react/useChatAgent.ts` | Der Agent-Loop |
-| `web/src/react/chatSession.ts` | Konversation außerhalb von React |
-| `web/src/react/ChatPanel.tsx` | Fertige Chat-UI |
-| `web/src/providers/createModel.ts` | Provider-Factory |
-| `example/` | Sprint-Board-Demo, die alles zusammen zeigt |
+| Pfad                               | Inhalt                                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `server/proxy.go`                  | Der Handler: Auth-Hook, Rate-Limit, Body-Limit, Model-Allowlist, Traversal-Schutz, SSE-Streaming |
+| `server/providers.go`              | Provider-Registry (Base-URL, Auth-Stil, wo das Modell im Request steht)                          |
+| `server/ratelimit.go`              | Fixed-Window-Limiter pro Client                                                                  |
+| `server/cmd/aichat-proxy/`         | Standalone-Binary für die lokale Entwicklung                                                     |
+| `web/src/core/guard.ts`            | **Die Sicherheitsgrenze.** AST-Analyse mit scope-bewusster Allowlist                             |
+| `web/src/core/evaluator.ts`        | Der Executor mit den 5 Schichten                                                                 |
+| `web/src/core/runtimeTypes.ts`     | `@values`-Annotationen → konkrete Union-Typen                                                    |
+| `web/src/core/roundValues.ts`      | Zahlen runden, bevor sie ins Kontextfenster wandern                                              |
+| `web/src/browser/uiState.ts`       | `readUIState()` — DOM lesen                                                                      |
+| `web/src/browser/uiActions.ts`     | `createUIActions()` — DOM bedienen                                                               |
+| `web/src/react/useChatAgent.ts`    | Der Agent-Loop                                                                                   |
+| `web/src/react/chatSession.ts`     | Konversation außerhalb von React                                                                 |
+| `web/src/react/ChatPanel.tsx`      | Fertige Chat-UI                                                                                  |
+| `web/src/providers/createModel.ts` | Provider-Factory                                                                                 |
+| `example/`                         | Sprint-Board-Demo, die alles zusammen zeigt                                                      |
 
----
+***
 
 ## Das evaluate-Pattern
 
@@ -168,10 +168,10 @@ return { moved: Math.floor(tasks.length / 2) };
 gleichzeitig echtes TypeScript (der Compiler prüft sie), Dokumentation für das Modell, und die
 Basis für die Runtime-Types. Kein Zod-Schema pro Funktion, kein Parser, kein Formatter.
 
-| Ansatz | Was du pro Aktion schreibst |
-| --- | --- |
+| Ansatz                   | Was du pro Aktion schreibst                                                  |
+| ------------------------ | ---------------------------------------------------------------------------- |
 | Klassisches Tool-Calling | Tool-Definition + Schema + Input-Parsing + Output-Formatting + Registrierung |
-| **evaluate** | Eine Methode im API-Objekt + eine Zeile in der Beschreibung |
+| **evaluate**             | Eine Methode im API-Objekt + eine Zeile in der Beschreibung                  |
 
 **4. Ein Tool-Call statt vieler.** Lesen, filtern, ändern und zusammenfassen passiert in einem
 Aufruf — nicht in acht.
@@ -263,14 +263,14 @@ nur die *freien Namen*.
 
 Escapes, die mit erlaubten Namen auskommen:
 
-| Konstrukt | Warum |
-| --- | --- |
-| `this` | wird in sloppy mode zu `globalThis` |
-| `.constructor` | `[].constructor.constructor("return globalThis")()` — der Klassiker |
-| `.prototype`, `.__proto__`, `getPrototypeOf`, `defineProperty` | Prototype-Walking und -Pollution |
-| `import()`, `import.meta`, `new.target` | Modulsystem |
-| `with`, Tagged Templates, `debugger` | kein legitimer Nutzen, zusätzliche Angriffsfläche |
-| berechneter Zugriff aus Ausdrücken | Verschleierung, siehe unten |
+| Konstrukt                                                      | Warum                                                               |
+| -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `this`                                                         | wird in sloppy mode zu `globalThis`                                 |
+| `.constructor`                                                 | `[].constructor.constructor("return globalThis")()` — der Klassiker |
+| `.prototype`, `.__proto__`, `getPrototypeOf`, `defineProperty` | Prototype-Walking und -Pollution                                    |
+| `import()`, `import.meta`, `new.target`                        | Modulsystem                                                         |
+| `with`, Tagged Templates, `debugger`                           | kein legitimer Nutzen, zusätzliche Angriffsfläche                   |
+| berechneter Zugriff aus Ausdrücken                             | Verschleierung, siehe unten                                         |
 
 #### Computed Access
 
@@ -317,17 +317,17 @@ braucht. Daraus folgen zwei ehrliche Einschränkungen:
   **Nimm nichts in die API auf, was du dem Nutzer nicht auch selbst erlauben würdest.**
   Destruktives (Löschen, Bezahlen, Versenden) gehört hinter eine Rückfrage.
 
----
+***
 
 ## System-Prompt & Wissensbasis
 
 Der Prompt wird aus Teilen zusammengesetzt und als `systemPrompt: string[]` übergeben:
 
-| Baustein | Inhalt | Zweck |
-| --- | --- | --- |
-| `instructions.md` | Rolle, Regeln, wann handeln statt fragen, wie mit Fehlern umgehen | Verhalten |
-| `api.ts` (per `?raw`) | TypeScript-Signaturen mit JSDoc, `@values`-Annotationen, Beispiele | Was das Modell aufrufen kann |
-| `knowledge.md` (optional) | FAQ, Domänenwissen, Glossar | Fakten |
+| Baustein                  | Inhalt                                                             | Zweck                        |
+| ------------------------- | ------------------------------------------------------------------ | ---------------------------- |
+| `instructions.md`         | Rolle, Regeln, wann handeln statt fragen, wie mit Fehlern umgehen  | Verhalten                    |
+| `api.ts` (per `?raw`)     | TypeScript-Signaturen mit JSDoc, `@values`-Annotationen, Beispiele | Was das Modell aufrufen kann |
+| `knowledge.md` (optional) | FAQ, Domänenwissen, Glossar                                        | Fakten                       |
 
 Dieselbe API-Beschreibung geht zusätzlich als `toolDescription` an das evaluate-Tool. Sie ist
 **echtes TypeScript** — der Compiler prüft sie mit — und gleichzeitig die Doku für das Modell.
@@ -428,11 +428,11 @@ war Kosteneffizienz. Mit Caching zahlst du den großen Prompt praktisch nur beim
 Antwortqualität am Retrieval-Ergebnis, und das schwankt mit der Formulierung der Frage. Das
 macht Verhalten schwer testbar.
 
-**Wann RAG trotzdem richtig ist:** Wissensbasis deutlich jenseits von ~100k Tokens (Support-
+**Wann RAG trotzdem richtig ist:** Wissensbasis deutlich jenseits von \~100k Tokens (Support-
 Portal mit zehntausenden Artikeln), sehr häufig wechselnde Datenmengen, oder Multi-Tenant mit je
 eigener großer Wissensbasis pro Mandant.
 
----
+***
 
 ## UI-Awareness
 
@@ -457,13 +457,13 @@ Damit muss das Modell nicht fragen, was der Nutzer sieht — es weiß es.
 Du annotierst die Elemente, die der Agent kennen darf. Alles andere bleibt für ihn unsichtbar —
 das ist eine bewusste Kuratierung, kein DOM-Dump.
 
-| Attribut | Semantik |
-| --- | --- |
-| `data-group-key` | Container / Gruppe — verschachtelt alles darin |
-| `data-button-key` | klickbarer Button |
-| `data-input-key` | Texteingabe — der aktuelle Wert wird mitgelesen |
+| Attribut          | Semantik                                                  |
+| ----------------- | --------------------------------------------------------- |
+| `data-group-key`  | Container / Gruppe — verschachtelt alles darin            |
+| `data-button-key` | klickbarer Button                                         |
+| `data-input-key`  | Texteingabe — der aktuelle Wert wird mitgelesen           |
 | `data-select-key` | Auswahl — aktueller Wert (`data-value`) plus die Optionen |
-| `data-info-key` | Nur-Lese-Text |
+| `data-info-key`   | Nur-Lese-Text                                             |
 
 **Dein JSX:**
 
@@ -509,12 +509,12 @@ readUIState({
 
 ### 3. `createUIActions()` — die Oberfläche bedienen
 
-| Funktion | Was sie tut |
-| --- | --- |
-| `highlightElement(key)` | scrollt hin und lässt das Element aufblitzen — zeigt dem Nutzer, wovon der Agent redet |
-| `clickElement(key)` | klickt den Button mit diesem `data-button-key` |
-| `selectOption(key, option)` | wählt eine Option (Radio-Gruppe oder `<select>`) |
-| `fillInput(key, value)` | tippt in das Feld |
+| Funktion                    | Was sie tut                                                                            |
+| --------------------------- | -------------------------------------------------------------------------------------- |
+| `highlightElement(key)`     | scrollt hin und lässt das Element aufblitzen — zeigt dem Nutzer, wovon der Agent redet |
+| `clickElement(key)`         | klickt den Button mit diesem `data-button-key`                                         |
+| `selectOption(key, option)` | wählt eine Option (Radio-Gruppe oder `<select>`)                                       |
+| `fillInput(key, value)`     | tippt in das Feld                                                                      |
 
 Diese Funktionen wandern ins API-Objekt und sind damit für den generierten Code aufrufbar.
 
@@ -541,7 +541,7 @@ const ui = createUIActions({
 });
 ```
 
----
+***
 
 ## Komponenten
 
@@ -627,17 +627,17 @@ bauen.
 
 ### `createModel` — Multi-Provider
 
-| Provider | Package | Auth | Besonderheit |
-| --- | --- | --- | --- |
-| **Google** | `@ai-sdk/google` | Query-Param `?key=` | Nativer Provider nötig: Gemini-Thinking-Modelle brauchen `thought_signature` über mehrere Tool-Schritte. Der OpenAI-kompatible Endpunkt kann das nicht. |
-| **OpenAI** | `@ai-sdk/openai` | Bearer | `.chat()` erzwingt Chat-Completions statt Responses-API — nur das sprechen kompatible Gateways. |
-| **Anthropic** | `@ai-sdk/anthropic` | `x-api-key` + `anthropic-version` | Explizites Prompt-Caching. |
-| **OpenRouter** | `@openrouter/ai-sdk-provider` | Bearer | Hunderte Modelle; `X-Title` + `HTTP-Referer` fürs Ranking. |
+| Provider       | Package                       | Auth                              | Besonderheit                                                                                                                                            |
+| -------------- | ----------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Google**     | `@ai-sdk/google`              | Query-Param `?key=`               | Nativer Provider nötig: Gemini-Thinking-Modelle brauchen `thought_signature` über mehrere Tool-Schritte. Der OpenAI-kompatible Endpunkt kann das nicht. |
+| **OpenAI**     | `@ai-sdk/openai`              | Bearer                            | `.chat()` erzwingt Chat-Completions statt Responses-API — nur das sprechen kompatible Gateways.                                                         |
+| **Anthropic**  | `@ai-sdk/anthropic`           | `x-api-key` + `anthropic-version` | Explizites Prompt-Caching.                                                                                                                              |
+| **OpenRouter** | `@openrouter/ai-sdk-provider` | Bearer                            | Hunderte Modelle; `X-Title` + `HTTP-Referer` fürs Ranking.                                                                                              |
 
 Der Wechsel ist ein Config-Wert. Ein neuer Provider ist ein `case`-Block plus ein Eintrag in der
 Go-Registry.
 
----
+***
 
 ## Der Go-Proxy
 
@@ -660,21 +660,21 @@ mux.Handle("/aichat/", http.StripPrefix("/aichat", proxy))
 
 ### Config-Referenz
 
-| Feld | Default | Wofür |
-| --- | --- | --- |
-| `Provider` | — | `google`, `openai`, `anthropic`, `openrouter` |
-| `APIKey` | — | wird serverseitig injiziert; **Pflicht** |
-| `BaseURL` | Provider-Default | eigenes Gateway; nötig bei unbekanntem Provider |
-| `Providers` | eingebaute Registry | eigene Provider ergänzen/überschreiben |
-| `AllowedModels` | leer = alles | Liste, Suffix `*` als Wildcard (`google/*`) |
-| `MaxBodyBytes` | 4 MiB | Chat-Historien mit Bildern werden groß |
-| `Timeout` | 5 min | lange Tool-Turns mit Reasoning-Modellen sind legitim |
-| `RateLimit` / `RateWindow` | 0 (aus) / 1 min | Requests pro Client und Fenster |
-| `ClientKey` | Remote-IP | in Apps mit Login besser die User-ID |
-| `TrustForwardedFor` | `false` | nur hinter einem eigenen Reverse-Proxy einschalten |
-| `Authorize` | nil (offen) | Hook; `ErrUnauthorized` → 401, sonst 403 |
-| `Logger` | `slog.Default()` | |
-| `Client` | eigener mit Timeout | z. B. für Custom-Transport |
+| Feld                       | Default             | Wofür                                                |
+| -------------------------- | ------------------- | ---------------------------------------------------- |
+| `Provider`                 | —                   | `google`, `openai`, `anthropic`, `openrouter`        |
+| `APIKey`                   | —                   | wird serverseitig injiziert; **Pflicht**             |
+| `BaseURL`                  | Provider-Default    | eigenes Gateway; nötig bei unbekanntem Provider      |
+| `Providers`                | eingebaute Registry | eigene Provider ergänzen/überschreiben               |
+| `AllowedModels`            | leer \= alles       | Liste, Suffix `*` als Wildcard (`google/*`)          |
+| `MaxBodyBytes`             | 4 MiB               | Chat-Historien mit Bildern werden groß               |
+| `Timeout`                  | 5 min               | lange Tool-Turns mit Reasoning-Modellen sind legitim |
+| `RateLimit` / `RateWindow` | 0 (aus) / 1 min     | Requests pro Client und Fenster                      |
+| `ClientKey`                | Remote-IP           | in Apps mit Login besser die User-ID                 |
+| `TrustForwardedFor`        | `false`             | nur hinter einem eigenen Reverse-Proxy einschalten   |
+| `Authorize`                | nil (offen)         | Hook; `ErrUnauthorized` → 401, sonst 403             |
+| `Logger`                   | `slog.Default()`    |                                                      |
+| `Client`                   | eigener mit Timeout | z. B. für Custom-Transport                           |
 
 ### Was der Proxy prüft — und warum
 
@@ -698,11 +698,11 @@ mux.Handle("/aichat/", http.StripPrefix("/aichat", proxy))
 
 ### Auth-Stile
 
-| Provider | Stil |
-| --- | --- |
-| Google | `?key=…` als Query-Parameter |
-| OpenAI, OpenRouter | `Authorization: Bearer …` |
-| Anthropic | `x-api-key: …` + `anthropic-version` |
+| Provider           | Stil                                 |
+| ------------------ | ------------------------------------ |
+| Google             | `?key=…` als Query-Parameter         |
+| OpenAI, OpenRouter | `Authorization: Bearer …`            |
+| Anthropic          | `x-api-key: …` + `anthropic-version` |
 
 Query-Parameter des Clients werden weitergereicht (Google braucht `alt=sse`).
 
@@ -712,16 +712,16 @@ Query-Parameter des Clients werden weitergereicht (Google braucht `alt=sse`).
 AI_PROVIDER=openrouter AI_API_KEY=sk-or-… go run ./cmd/aichat-proxy
 ```
 
-| Env | Default | |
-| --- | --- | --- |
-| `AI_PROVIDER` | `google` | |
-| `AI_API_KEY` | — | Pflicht |
-| `AI_BASE_URL` | — | eigenes Gateway |
-| `AI_ALLOWED_MODELS` | leer | kommagetrennt, `*` als Wildcard |
-| `AI_RATE_LIMIT` | 60 | Requests/Minute |
-| `AI_PROXY_ADDR` | `:8090` | |
-| `AI_PROXY_PATH` | `/aichat` | |
-| `AI_CORS_ORIGIN` | leer | nur nötig, wenn Frontend auf anderer Origin läuft |
+| Env                 | Default   |                                                   |
+| ------------------- | --------- | ------------------------------------------------- |
+| `AI_PROVIDER`       | `google`  |                                                   |
+| `AI_API_KEY`        | —         | Pflicht                                           |
+| `AI_BASE_URL`       | —         | eigenes Gateway                                   |
+| `AI_ALLOWED_MODELS` | leer      | kommagetrennt, `*` als Wildcard                   |
+| `AI_RATE_LIMIT`     | 60        | Requests/Minute                                   |
+| `AI_PROXY_ADDR`     | `:8090`   |                                                   |
+| `AI_PROXY_PATH`     | `/aichat` |                                                   |
+| `AI_CORS_ORIGIN`    | leer      | nur nötig, wenn Frontend auf anderer Origin läuft |
 
 In Produktion bettest du stattdessen `aichat.NewProxy` in deinen eigenen Server ein — dann greift
 die Session-Auth der App, und CORS entfällt, weil alles same-origin ist.
@@ -732,7 +732,7 @@ die Session-Auth der App, und CORS entfällt, weil alles same-origin ist.
 gehen per `credentials: "include"` mit. Die **Validierung gehört in deinen `Authorize`-Hook** —
 der Standalone-Proxy prüft nichts, er kennt deine Session ja nicht.
 
----
+***
 
 ## Integration in eigene Anwendungen
 
@@ -740,33 +740,33 @@ der Standalone-Proxy prüft nichts, er kennt deine Session ja nicht.
 
 **✅ Unverändert übernehmen** — keine Domänenlogik:
 
-| Datei | |
-| --- | --- |
-| `core/guard.ts` | AST-Guard. Universell. |
-| `core/evaluator.ts` | Executor mit 5 Schichten. Nimmt jede API entgegen. |
-| `core/runtimeTypes.ts` | `@values`-Auflösung. Funktioniert mit jedem Interface. |
-| `core/roundValues.ts` | Hilfsfunktion. |
-| `browser/uiState.ts`, `browser/uiActions.ts` | DOM lesen/bedienen über `data-*`. Universell. |
-| `react/useChatAgent.ts`, `react/chatSession.ts` | Agent-Loop und State. Rein konfigurationsgetrieben. |
-| `providers/createModel.ts` | Provider-Factory. |
-| `server/*.go` | Proxy. Konfiguration über `Config`. |
+| Datei                                           |                                                        |
+| ----------------------------------------------- | ------------------------------------------------------ |
+| `core/guard.ts`                                 | AST-Guard. Universell.                                 |
+| `core/evaluator.ts`                             | Executor mit 5 Schichten. Nimmt jede API entgegen.     |
+| `core/runtimeTypes.ts`                          | `@values`-Auflösung. Funktioniert mit jedem Interface. |
+| `core/roundValues.ts`                           | Hilfsfunktion.                                         |
+| `browser/uiState.ts`, `browser/uiActions.ts`    | DOM lesen/bedienen über `data-*`. Universell.          |
+| `react/useChatAgent.ts`, `react/chatSession.ts` | Agent-Loop und State. Rein konfigurationsgetrieben.    |
+| `providers/createModel.ts`                      | Provider-Factory.                                      |
+| `server/*.go`                                   | Proxy. Konfiguration über `Config`.                    |
 
 **⚙️ Anpassen** — Struktur bleibt:
 
-| Datei | Was du änderst |
-| --- | --- |
+| Datei                          | Was du änderst                                                 |
+| ------------------------------ | -------------------------------------------------------------- |
 | `react/ChatPanel.tsx` / `.css` | Texte, Farben, Icons, Layout — meist reichen die CSS-Variablen |
-| `cmd/aichat-proxy/main.go` | Vorlage für das Einbetten in deinen eigenen Server |
+| `cmd/aichat-proxy/main.go`     | Vorlage für das Einbetten in deinen eigenen Server             |
 
 **🔧 Neu schreiben** — das ist *dein* Assistent:
 
-| Datei | Was sie tut | Vorlage |
-| --- | --- | --- |
-| `agent/instructions.md` | Rolle, Regeln, Verhalten | `example/src/agent/instructions.md` |
-| `agent/api.ts` | TypeScript-Beschreibung deiner API + `@values` + Beispiele | `example/src/agent/api.ts` |
-| `agent/setup.ts` | Wiring: `createEvaluator`, `expandRuntimeTypes`, `appContext` | `example/src/agent/setup.ts` |
-| Die API-Funktionen selbst | Was der Agent darf | `example/src/board.ts` |
-| `data-*`-Attribute | Was der Agent sieht und bedienen kann | `example/src/App.tsx` |
+| Datei                     | Was sie tut                                                   | Vorlage                             |
+| ------------------------- | ------------------------------------------------------------- | ----------------------------------- |
+| `agent/instructions.md`   | Rolle, Regeln, Verhalten                                      | `example/src/agent/instructions.md` |
+| `agent/api.ts`            | TypeScript-Beschreibung deiner API + `@values` + Beispiele    | `example/src/agent/api.ts`          |
+| `agent/setup.ts`          | Wiring: `createEvaluator`, `expandRuntimeTypes`, `appContext` | `example/src/agent/setup.ts`        |
+| Die API-Funktionen selbst | Was der Agent darf                                            | `example/src/board.ts`              |
+| `data-*`-Attribute        | Was der Agent sieht und bedienen kann                         | `example/src/App.tsx`               |
 
 ### Schritt für Schritt
 
@@ -790,13 +790,13 @@ der Standalone-Proxy prüft nichts, er kennt deine Session ja nicht.
 
 #### Phase 2 — Der Agent bedient die App
 
-4. **`api.ts` schreiben.** Signaturen mit JSDoc, `@values` für alles, was gültige Werte hat, und
+1. **`api.ts` schreiben.** Signaturen mit JSDoc, `@values` für alles, was gültige Werte hat, und
    zwei, drei Beispiel-Snippets. Die Beispiele sind erstaunlich wirksam.
-5. **API-Objekt implementieren.** Bevorzugt die Funktionen, die deine UI ohnehin aufruft —
+2. **API-Objekt implementieren.** Bevorzugt die Funktionen, die deine UI ohnehin aufruft —
    dann laufen Validierung und Undo automatisch mit.
-6. **Zusammenstecken:**
+3. **Zusammenstecken:**
 
-```ts
+````ts
 const evaluate = createEvaluator({
   api: { ...meineApi, ...createUIActions(), readUIState },
   onAfterRun: () => store.notify(),
@@ -815,21 +815,21 @@ export const agentOptions = (): ChatAgentOptions => {
     appContext: () => JSON.stringify({ state: store.list(), ui: readUIState() }),
   };
 };
-```
+````
 
-7. **`data-*`-Attribute setzen** — auf alles, was der Agent sehen und bedienen darf.
+1. **`data-*`-Attribute setzen** — auf alles, was der Agent sehen und bedienen darf.
 
 #### Phase 3 — Produktionsreife
 
-8. **Destruktives absichern.** Löschen/Bezahlen/Versenden hinter eine Rückfrage in den
+1. **Destruktives absichern.** Löschen/Bezahlen/Versenden hinter eine Rückfrage in den
    Instructions — oder ganz aus der API heraushalten.
-9. **`AllowedModels` und `RateLimit`** im Proxy setzen. Ohne Allowlist wählt der Client das Modell.
-10. **Vision-Modell** konfigurieren, wenn Screenshots erlaubt sein sollen.
-11. **Beispieldialoge** in die Instructions — sie steuern das Verhalten stärker als jede Regel.
-12. **Bundle-Größe prüfen:** Das AI-SDK wiegt einiges. Wenn der Chat nicht auf jeder Seite
-    gebraucht wird, per `React.lazy` nachladen.
+2. **`AllowedModels` und `RateLimit`** im Proxy setzen. Ohne Allowlist wählt der Client das Modell.
+3. **Vision-Modell** konfigurieren, wenn Screenshots erlaubt sein sollen.
+4. **Beispieldialoge** in die Instructions — sie steuern das Verhalten stärker als jede Regel.
+5. **Bundle-Größe prüfen:** Das AI-SDK wiegt einiges. Wenn der Chat nicht auf jeder Seite
+   gebraucht wird, per `React.lazy` nachladen.
 
----
+***
 
 ## Tests
 
@@ -850,7 +850,7 @@ cd web && SMOKE=1 npx vitest run src/smoke.test.ts
 Er prüft die Kette, die keine Unit-Tests abdecken können: Transport → Proxy → Provider →
 Tool-Call → Guard → Ausführung → Antwort. Kosten: Bruchteile eines Cents.
 
----
+***
 
 ## Design-Entscheidungen
 
@@ -896,19 +896,19 @@ explizite Session überlebt Unmounts genauso, ist aber isoliert — und in Tests
 Er ändert sich jeden Turn. Am System-Prompt würde er das Prompt-Caching bei jeder Nachricht
 zerstören — und der System-Prompt (Instructions + volle API) ist der teuerste Teil des Requests.
 
----
+***
 
 ## Betriebs-Checkliste
 
-- [ ] `AllowedModels` gesetzt — sonst wählt der Client das Modell und damit die Kosten
-- [ ] `Authorize` gesetzt — sonst ist der Proxy für jeden offen, der ihn erreicht
-- [ ] `RateLimit` gesetzt, `ClientKey` auf die User-ID statt die IP
-- [ ] `TrustForwardedFor` nur hinter einem eigenen Reverse-Proxy
-- [ ] Destruktive Operationen aus der API heraus oder hinter eine Rückfrage
-- [ ] CSRF-Validierung im `Authorize`-Hook
-- [ ] `showToolActivity` an lassen — Nachvollziehbarkeit ist ein Feature, kein Debug-Modus
+* [ ] `AllowedModels` gesetzt — sonst wählt der Client das Modell und damit die Kosten
+* [ ] `Authorize` gesetzt — sonst ist der Proxy für jeden offen, der ihn erreicht
+* [ ] `RateLimit` gesetzt, `ClientKey` auf die User-ID statt die IP
+* [ ] `TrustForwardedFor` nur hinter einem eigenen Reverse-Proxy
+* [ ] Destruktive Operationen aus der API heraus oder hinter eine Rückfrage
+* [ ] CSRF-Validierung im `Authorize`-Hook
+* [ ] `showToolActivity` an lassen — Nachvollziehbarkeit ist ein Feature, kein Debug-Modus
 
----
+***
 
 ## Lizenz
 
