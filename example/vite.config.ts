@@ -8,8 +8,13 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      // The library is consumed as source. In a real app you would install it
-      // instead – the import path stays the same either way.
+      // The library is consumed as source, not as a built bundle.
+      //
+      // This example gets away with a bare alias because it sits next to web/,
+      // so the library's own imports (react, ai, acorn, …) resolve upward into
+      // web/node_modules. An app that pulls the library in from somewhere else
+      // – a submodule under third_party/, say – needs to map those specifiers
+      // explicitly. See "Die Lib wird als Quelltext eingebunden" in the README.
       baseaichat: resolvePath("../web/src/index.ts"),
     },
     // One React instance only: two copies break hooks.

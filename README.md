@@ -757,6 +757,44 @@ der Standalone-Proxy prüft nichts, er kennt deine Session ja nicht.
 
 ## Integration in eigene Anwendungen
 
+### Die Lib wird als **Quelltext** eingebunden — und das hat eine Falle
+
+Es gibt kein gebautes Bundle: Du zeigst mit einem Alias auf `web/src/index.ts`. Solange die Lib
+*neben* deinem App-Paket liegt (wie `example/` hier neben `web/`), funktioniert das ohne
+Zutun. **Sobald sie woanders liegt — etwa als Git-Submodule unter `third_party/` — bricht die
+Modulauflösung**, und zwar vollständig:
+
+Node und Vite lösen Bare-Imports **relativ zur importierenden Datei** auf. Die Imports *in
+meinem Quelltext* (`react`, `ai`, `acorn`, `marked`, `dompurify`, `@ai-sdk/*`) suchen also ab
+`third_party/baseaichat/web/src/` aufwärts — und laufen an `deineApp/web/node_modules` **vorbei**.
+Kein einziger Import löst sich auf, weder im Dev-Server noch im Build noch in den Tests.
+`resolve.dedupe` hilft dagegen nicht: Das greift erst, wenn überhaupt etwas aufgelöst wurde.
+
+Zwei Wege raus:
+
+**A — Alias-Map (robust, in FieldDraft im Einsatz).** Bilde jeden Bare-Specifier der Lib auf
+*deine* `node_modules` ab und teile die Map zwischen Vite und Vitest:
+
+```ts
+// web/aichatResolve.ts
+const pkgs = ["react", "react-dom", "ai", "acorn", "marked", "dompurify",
+              "@ai-sdk/anthropic", "@ai-sdk/google", "@ai-sdk/openai",
+              "@openrouter/ai-sdk-provider"];
+
+export const aichatAlias = [
+  { find: "baseaichat", replacement: resolve(__dirname, "../third_party/baseaichat/web/src/index.ts") },
+  // Exakter Anker: ein simpler "react"-Prefix würde sonst auch "react-dom" schlucken.
+  ...pkgs.map((name) => ({
+    find: new RegExp(`^${name}(/.*)?$`),   // Subpfade wie react/jsx-runtime mitnehmen
+    replacement: resolve(__dirname, "node_modules", name) + "$1",
+  })),
+];
+```
+
+**B — Deps im Lib-Verzeichnis installieren** (`cd third_party/baseaichat/web && npm install`) und
+`resolve.dedupe: ["react", "react-dom"]` setzen, damit React einfach bleibt. Schneller
+eingerichtet, kostet einen zweiten `node_modules`-Baum und lädt zur Versionsdrift ein.
+
 ### Wiederverwendbarkeits-Matrix
 
 **✅ Unverändert übernehmen** — keine Domänenlogik:
