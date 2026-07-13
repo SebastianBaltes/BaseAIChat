@@ -1,0 +1,475 @@
+/**
+ * ChatPanel.css – every value is a variable, so a host app can restyle the
+ * panel to its own brand without forking the component. Override the variables
+ * on :root or on a wrapper element.
+ *
+ * The defaults follow the OS colour scheme rather than forcing light mode:
+ * a chat that glows white inside a dark app looks bolted on.
+ */
+.bac-launcher,
+.bac-panel {
+  --bac-radius: 14px;
+  --bac-gap: 12px;
+  --bac-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bac-mono: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+
+  --bac-surface: #ffffff;
+  --bac-surface-sunken: #f1f5f9;
+  --bac-text: #0f172a;
+  --bac-text-muted: #64748b;
+  --bac-border: #e2e8f0;
+  --bac-accent: #4f46e5;
+  --bac-accent-text: #ffffff;
+  --bac-danger: #dc2626;
+  --bac-danger-surface: #fef2f2;
+  --bac-code-surface: #1e293b;
+  --bac-code-text: #e2e8f0;
+  --bac-shadow: 0 20px 50px rgb(15 23 42 / 18%);
+
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 50;
+  font-family: var(--bac-font);
+  color: var(--bac-text);
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  .bac-launcher,
+  .bac-panel {
+    --bac-surface: #0f172a;
+    --bac-surface-sunken: #1e293b;
+    --bac-text: #e2e8f0;
+    --bac-text-muted: #94a3b8;
+    --bac-border: #334155;
+    --bac-accent: #6366f1;
+    --bac-danger-surface: #450a0a;
+    --bac-code-surface: #020617;
+    --bac-shadow: 0 20px 50px rgb(0 0 0 / 45%);
+  }
+}
+
+.bac-panel *,
+.bac-launcher * {
+  box-sizing: border-box;
+}
+
+/* ── Launcher ─────────────────────────────────────────────────────────────── */
+
+.bac-launcher {
+  padding: 12px 22px;
+  border: none;
+  border-radius: 999px;
+  background: var(--bac-accent);
+  color: var(--bac-accent-text);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--bac-shadow);
+}
+
+.bac-launcher:hover {
+  filter: brightness(1.08);
+}
+
+/* ── Panel ────────────────────────────────────────────────────────────────── */
+
+.bac-panel {
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+  border: 1px solid var(--bac-border);
+  border-radius: var(--bac-radius);
+  background: var(--bac-surface);
+  box-shadow: var(--bac-shadow);
+}
+
+.bac-resize {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, var(--bac-border) 30%, transparent 30%);
+  border-top-left-radius: var(--bac-radius);
+}
+
+.bac-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 14px 24px;
+  border-bottom: 1px solid var(--bac-border);
+}
+
+.bac-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bac-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.bac-header-actions button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--bac-text-muted);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.bac-header-actions button:hover {
+  background: var(--bac-surface-sunken);
+  color: var(--bac-text);
+}
+
+/* ── Messages ─────────────────────────────────────────────────────────────── */
+
+.bac-messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--bac-gap);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.bac-greeting {
+  color: var(--bac-text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bac-message {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: var(--bac-radius);
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.bac-message p {
+  margin: 0;
+}
+
+.bac-user {
+  align-self: flex-end;
+  background: var(--bac-accent);
+  color: var(--bac-accent-text);
+}
+
+.bac-assistant {
+  align-self: flex-start;
+  background: var(--bac-surface-sunken);
+}
+
+.bac-error {
+  align-self: stretch;
+  max-width: 100%;
+  border: 1px solid var(--bac-danger);
+  background: var(--bac-danger-surface);
+  color: var(--bac-danger);
+}
+
+.bac-banner {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bac-danger-surface);
+  color: var(--bac-danger);
+  font-size: 13px;
+}
+
+.bac-image {
+  display: block;
+  max-width: 220px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+}
+
+/* A caret while the answer is still arriving. */
+.bac-streaming::after {
+  content: "▍";
+  margin-left: 2px;
+  animation: bac-blink 1s steps(2, start) infinite;
+  color: var(--bac-text-muted);
+}
+
+@keyframes bac-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── Markdown ─────────────────────────────────────────────────────────────── */
+
+.bac-markdown > span > :first-child {
+  margin-top: 0;
+}
+
+.bac-markdown > span > :last-child {
+  margin-bottom: 0;
+}
+
+.bac-markdown p {
+  margin: 0 0 0.6em;
+}
+
+.bac-markdown ul,
+.bac-markdown ol {
+  margin: 0.4em 0;
+  padding-left: 1.3em;
+}
+
+.bac-markdown h1,
+.bac-markdown h2,
+.bac-markdown h3 {
+  margin: 0.7em 0 0.35em;
+  font-size: 1.05em;
+}
+
+.bac-markdown code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bac-code-surface);
+  color: var(--bac-code-text);
+  font-family: var(--bac-mono);
+  font-size: 0.86em;
+}
+
+.bac-markdown pre {
+  margin: 0.5em 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bac-code-surface);
+  overflow-x: auto;
+}
+
+.bac-markdown pre code {
+  padding: 0;
+  background: none;
+}
+
+.bac-markdown a {
+  color: var(--bac-accent);
+}
+
+.bac-markdown table {
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.bac-markdown th,
+.bac-markdown td {
+  padding: 4px 8px;
+  border: 1px solid var(--bac-border);
+}
+
+/* ── Tool activity ────────────────────────────────────────────────────────── */
+
+.bac-tool {
+  align-self: stretch;
+  border: 1px dashed var(--bac-border);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.bac-tool > summary {
+  padding: 6px 10px;
+  color: var(--bac-text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.bac-tool > summary::before {
+  content: "▸ ";
+}
+
+.bac-tool[open] > summary::before {
+  content: "▾ ";
+}
+
+.bac-tool-failed {
+  border-color: var(--bac-danger);
+}
+
+.bac-tool-failed > summary {
+  color: var(--bac-danger);
+}
+
+.bac-tool pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--bac-border);
+  background: var(--bac-code-surface);
+  color: var(--bac-code-text);
+  font-family: var(--bac-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 260px;
+}
+
+.bac-tool pre:last-child {
+  border-radius: 0 0 9px 9px;
+}
+
+.bac-tool-result {
+  background: var(--bac-surface-sunken) !important;
+  color: var(--bac-text-muted) !important;
+}
+
+/* ── Typing indicator ─────────────────────────────────────────────────────── */
+
+.bac-typing {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--bac-radius);
+  background: var(--bac-surface-sunken);
+}
+
+.bac-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bac-text-muted);
+  animation: bac-bounce 0.9s infinite;
+}
+
+.bac-typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.bac-typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes bac-bounce {
+  0%,
+  70%,
+  100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* ── Suggestions & composer ───────────────────────────────────────────────── */
+
+.bac-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 12px;
+}
+
+.bac-suggestions button {
+  padding: 6px 12px;
+  border: 1px solid var(--bac-border);
+  border-radius: 999px;
+  background: var(--bac-surface);
+  color: var(--bac-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bac-suggestions button:hover {
+  background: var(--bac-surface-sunken);
+}
+
+.bac-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--bac-border);
+}
+
+.bac-attachment {
+  position: relative;
+  align-self: flex-start;
+}
+
+.bac-attachment img {
+  max-height: 72px;
+  border-radius: 8px;
+}
+
+.bac-attachment button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bac-text);
+  color: var(--bac-surface);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.bac-composer textarea {
+  min-height: 64px;
+  max-height: 160px;
+  padding: 10px 12px;
+  border: 1px solid var(--bac-border);
+  border-radius: 10px;
+  background: var(--bac-surface-sunken);
+  color: var(--bac-text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.bac-composer textarea:focus-visible {
+  outline: 2px solid var(--bac-accent);
+  outline-offset: 1px;
+}
+
+.bac-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bac-icon,
+.bac-send {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bac-surface-sunken);
+  color: var(--bac-text);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.bac-send {
+  background: var(--bac-accent);
+  color: var(--bac-accent-text);
+}
+
+.bac-stop {
+  background: var(--bac-danger);
+  color: #fff;
+}
