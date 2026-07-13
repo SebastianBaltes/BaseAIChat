@@ -9,16 +9,23 @@
  * Layers, in the order a call passes through them:
  *   1. input check      – type and length
  *   2. rate limit       – per evaluator instance, not per page
- *   3. static guard     – guardCode(); the actual security boundary
+ *   3. static guard     – guardCode(); rejects known escape vectors
  *   4. execution        – `with (api)` inside an async function, with a timeout
  *   5. output shaping   – transform, serialise, truncate
+ *
+ * The guard stops the code from breaking *out* of the API. It does not decide
+ * what the API may do – that is the API object below, and it is the real
+ * security boundary. Put nothing in it you would not let the user do.
  */
 import { guardCode, type GuardOptions } from "./guard";
 
 export interface EvaluatorOptions {
   /**
-   * The API object the model writes code against. Its keys become the names
-   * available inside the generated code, and nothing else is reachable.
+   * The API object the model writes code against. Its members become bare names
+   * inside the generated code (via `with`), and may be a deep object tree – the
+   * guard does not need to know its shape.
+   *
+   * This is the security boundary: the model can do whatever this object can do.
    */
   api: Record<string, unknown>;
 
@@ -43,8 +50,10 @@ export interface EvaluatorOptions {
   maxCallsPerWindow?: number;
   /** Rate-limit window in ms (default 60000). */
   rateWindowMs?: number;
-  /** Extra globals the generated code may reference beyond the safe built-ins. */
-  extraGlobals?: string[];
+  /** Identifiers to reject on top of the guard's built-in list (e.g. your own globals). */
+  extraBlocked?: string[];
+  /** Identifiers to permit despite being blocked by default. Use sparingly. */
+  allowBlocked?: string[];
 }
 
 export type Evaluator = (input: { code: string }) => Promise<string>;
@@ -71,14 +80,14 @@ export function createEvaluator(options: EvaluatorOptions): Evaluator {
     timeoutMs = 30_000,
     maxCallsPerWindow = 40,
     rateWindowMs = 60_000,
-    extraGlobals = [],
+    extraBlocked = [],
+    allowBlocked = [],
   } = options;
 
-  const guardOptions: GuardOptions = {
-    apiNames: Object.keys(api),
-    extraGlobals,
-    maxLength: maxCodeLength,
-  };
+  // The guard needs nothing from the API: it restricts language constructs, not
+  // the app's vocabulary. That is what lets the API be a deep, dynamic object
+  // tree instead of a flat list of names known up front.
+  const guardOptions: GuardOptions = { extraBlocked, allowBlocked, maxLength: maxCodeLength };
 
   let callsInWindow = 0;
   let windowStart = Date.now();

