@@ -907,3 +907,9 @@ zerstören — und der System-Prompt (Instructions + volle API) ist der teuerste
 - [ ] Destruktive Operationen aus der API heraus oder hinter eine Rückfrage
 - [ ] CSRF-Validierung im `Authorize`-Hook
 - [ ] `showToolActivity` an lassen — Nachvollziehbarkeit ist ein Feature, kein Debug-Modus
+
+---
+
+## Lizenz
+
+[MIT](LICENSE) © 2026 Sebastian Baltes
