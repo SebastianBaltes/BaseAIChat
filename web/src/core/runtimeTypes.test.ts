@@ -1,7 +1,38 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { expandRuntimeTypes } from "./runtimeTypes";
 
 describe("expandRuntimeTypes", () => {
+  // A misplaced annotation used to be a silent no-op: no pass matched it, and the
+  // model was handed the literal word "@values" while the host believed it was
+  // handing over live values. That is how FieldDraft shipped a dead annotation for
+  // months. A no-op that looks like a success has to be loud.
+  describe("an annotation that does nothing says so", () => {
+    it("warns when @values sits in a JSDoc block instead of a line comment", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const source = ["/**", " * @values context.featureTypes", " */", "type Feature = string;"].join("\n");
+
+      const result = expandRuntimeTypes(source, { featureTypes: ["box", "hole"] });
+
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn.mock.calls[0][0]).toContain("had no effect");
+      // The annotation did not expand – but it must not reach the model either.
+      expect(result).not.toContain("@values");
+      expect(result).toContain("type Feature = string;");
+      warn.mockRestore();
+    });
+
+    it("stays quiet when every annotation was consumed", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      expandRuntimeTypes("// @values context.statuses\ntype Status = string;", {
+        statuses: ["todo"],
+      });
+
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+  });
+
   it("expands a type alias into the values that exist right now", () => {
     const source = [
       "// @values context.statuses",

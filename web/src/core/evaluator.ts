@@ -26,8 +26,14 @@ export interface EvaluatorOptions {
    * guard does not need to know its shape.
    *
    * This is the security boundary: the model can do whatever this object can do.
+   *
+   * Typed as `object`, not `Record<string, unknown>`, and that is deliberate: a
+   * TypeScript `interface` has no implicit index signature, so a `Record` here
+   * would reject exactly the object you should be passing – one annotated with
+   * the same interface the model reads as its API description. Do that, and the
+   * compiler keeps description and implementation from drifting apart.
    */
-  api: Record<string, unknown>;
+  api: object;
 
   /** Runs before execution, e.g. to log the code the model wrote. */
   onBeforeRun?: (code: string) => void;
@@ -135,10 +141,10 @@ export function createEvaluator(options: EvaluatorOptions): Evaluator {
  * not a global binding. This is the one place that construct is allowed – the
  * code it compiles has already passed the guard.
  */
-async function runWithTimeout(code: string, api: Record<string, unknown>, timeoutMs: number) {
+async function runWithTimeout(code: string, api: object, timeoutMs: number) {
   const AsyncFunction = new Function("return (async function () {}).constructor")() as FunctionConstructor;
   const run = new AsyncFunction("__api__", `with (__api__) {\n${code}\n}`) as (
-    api: Record<string, unknown>
+    api: object
   ) => Promise<unknown>;
 
   let timer: ReturnType<typeof setTimeout> | undefined;

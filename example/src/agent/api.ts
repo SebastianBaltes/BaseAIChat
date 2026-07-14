@@ -1,6 +1,16 @@
-// This file is never executed. It is imported with `?raw` and shown to the
-// model as the description of what it may call – so it is documentation whose
-// signatures happen to be checked by the compiler.
+// This file is a contract, and it binds in both directions.
+//
+// Downwards it is what the model reads: the file is imported with `?raw` and the
+// text between the markers becomes the API description in the system prompt and
+// the tool description. Upwards it is a type the implementation must satisfy –
+// `setup.ts` annotates its api object with `AgentApi`, so `tsc` fails when a
+// function here does not exist there, has a different signature, or exists there
+// without being described here.
+//
+// That is the whole point of the shape: a signature in this file cannot be
+// fiction. Describe a function that nobody implements and the build breaks –
+// rather than the model dutifully calling it and the bug looking like a model
+// error.
 //
 // The `@values` comments are expanded against live app state before the model
 // sees them, turning `string` into the exact set of values that exists right
@@ -23,49 +33,55 @@ interface Task {
 }
 
 /**
- * Every task on the board.
- *
- * The objects are copies: assigning to them changes nothing. Every change must
- * go through addTask / updateTask / removeTask, which is also what keeps the
- * board's validation and undo history intact.
+ * Everything you may call. The code runs inside a `with (api)` scope, so you
+ * write the bare name: `listTasks()`, not `api.listTasks()`.
  */
-declare function listTasks(): Task[];
+interface AgentApi {
+  /**
+   * Every task on the board.
+   *
+   * The objects are copies: assigning to them changes nothing. Every change must
+   * go through addTask / updateTask / removeTask, which is also what keeps the
+   * board's validation and undo history intact.
+   */
+  listTasks(): Task[];
 
-/** Adds a task. Defaults: status "todo", assignee "unassigned", estimate 1. */
-declare function addTask(input: {
-  title: string;
-  status?: Status;
-  assignee?: Assignee;
-  estimate?: number;
-}): Task;
+  /** Adds a task. Defaults: status "todo", assignee "unassigned", estimate 1. */
+  addTask(input: {
+    title: string;
+    status?: Status;
+    assignee?: Assignee;
+    estimate?: number;
+  }): Task;
 
-/** Changes the given fields of one task. Throws if the id does not exist. */
-declare function updateTask(id: number, patch: Partial<Omit<Task, "id">>): Task;
+  /** Changes the given fields of one task. Throws if the id does not exist. */
+  updateTask(id: number, patch: Partial<Omit<Task, "id">>): Task;
 
-/** Deletes a task. */
-declare function removeTask(id: number): { removed: number };
+  /** Deletes a task. */
+  removeTask(id: number): { removed: number };
 
-/** The statuses and people the board accepts. */
-declare function listStatuses(): Status[];
-declare function listAssignees(): Assignee[];
+  /** The statuses and people the board accepts. */
+  listStatuses(): Status[];
+  listAssignees(): Assignee[];
 
-/**
- * What is on screen right now: the visible controls and their current values.
- * Call this before touching the UI – keys change as the user navigates.
- */
-declare function readUIState(): unknown;
+  /**
+   * What is on screen right now: the visible controls and their current values.
+   * Call this before touching the UI – keys change as the user navigates.
+   */
+  readUIState(): unknown;
 
-/** Scrolls an element into view and flashes it, to show the user what you mean. */
-declare function highlightElement(key: string): void;
+  /** Scrolls an element into view and flashes it, to show the user what you mean. */
+  highlightElement(key: string): void;
 
-/** Clicks a button, e.g. clickElement("add-task"). */
-declare function clickElement(key: string): void;
+  /** Clicks a button, e.g. clickElement("add-task"). */
+  clickElement(key: string): void;
 
-/** Types into a field, e.g. fillInput("new-task-title", "Fix the build"). */
-declare function fillInput(key: string, value: string | number): void;
+  /** Types into a field, e.g. fillInput("new-task-title", "Fix the build"). */
+  fillInput(key: string, value: string | number): void;
 
-/** Picks an option in a select control, e.g. selectOption("filter-status", "done"). */
-declare function selectOption(key: string, option: string): void;
+  /** Picks an option in a select control, e.g. selectOption("filter-status", "done"). */
+  selectOption(key: string, option: string): void;
+}
 
 // ── Examples ─────────────────────────────────────────────────────────────────
 //
@@ -90,4 +106,7 @@ declare function selectOption(key: string, option: string): void;
 //   return "filtered the board to completed work";
 // @api-end
 
-export {};
+// Below the marker: the compiler sees this, the model never does. `expandRuntimeTypes`
+// trims everything outside @api-start/@api-end, which is what lets this file be a real
+// module – with imports and exports – instead of a floating wall of text.
+export type { AgentApi, Assignee, Status, Task };

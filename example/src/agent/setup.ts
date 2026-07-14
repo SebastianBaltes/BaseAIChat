@@ -14,6 +14,7 @@ import {
 } from "baseaichat";
 import apiSource from "./api.ts?raw";
 import instructions from "./instructions.md?raw";
+import type { AgentApi } from "./api";
 import { ASSIGNEES, board, STATUSES } from "../board";
 
 const ui = createUIActions();
@@ -21,18 +22,33 @@ const ui = createUIActions();
 /**
  * The API the model writes code against. Its keys are the only names the
  * generated code can reach – the guard rejects everything else.
+ *
+ * The `AgentApi` annotation is the load-bearing part: `api.ts` is not a
+ * description *of* this object, it is a contract *over* it. Rename a function
+ * here and the build fails; add one without describing it there and the excess
+ * property check fails. The description the model reads and the code it reaches
+ * cannot drift apart.
+ *
+ * That is also why the UI actions are listed one by one instead of spread in:
+ * a spread slips past the excess property check, and then an undescribed
+ * function could reach the model's scope unannounced.
  */
+const api: AgentApi = {
+  listTasks: () => board.list(),
+  addTask: board.add,
+  updateTask: board.update,
+  removeTask: board.remove,
+  listStatuses: () => [...STATUSES],
+  listAssignees: () => [...ASSIGNEES],
+  readUIState: () => readUIState({ context: () => ({ page: "board" }) }),
+  highlightElement: ui.highlightElement,
+  clickElement: ui.clickElement,
+  selectOption: ui.selectOption,
+  fillInput: ui.fillInput,
+};
+
 const evaluate = createEvaluator({
-  api: {
-    listTasks: () => board.list(),
-    addTask: board.add,
-    updateTask: board.update,
-    removeTask: board.remove,
-    listStatuses: () => [...STATUSES],
-    listAssignees: () => [...ASSIGNEES],
-    readUIState: () => readUIState({ context: () => ({ page: "board" }) }),
-    ...ui,
-  },
+  api,
   // Estimates are halves and quarters; 0.30000000000000004 helps nobody.
   transformResult: (result) => roundValues(result, 2),
   onBeforeRun: (code) => console.debug("[agent] running:\n", code),

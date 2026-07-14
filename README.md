@@ -182,12 +182,18 @@ Der Preis: Du führst modellgenerierten Code aus. Deshalb der Guard.
 ### createEvaluator() — Konfiguration
 
 ```ts
+// Die Annotation ist nicht Kosmetik: sie bindet die Implementierung an die
+// Beschreibung, die das Modell liest. Siehe „Die Beschreibung ist ein Vertrag“.
+const api: AgentApi = {
+  listTasks: () => board.list(),   // was der Agent darf
+  addTask: board.add,
+  highlightElement: ui.highlightElement,   // click, fill, select, highlight
+  readUIState,                     // was er sieht
+  // …
+};
+
 const evaluate = createEvaluator({
-  api: {
-    ...meineDomainFunktionen,   // was der Agent darf
-    ...createUIActions(),       // click, fill, select, highlight
-    readUIState,                // was er sieht
-  },
+  api,
   onAfterRun: () => store.notify(),          // Re-Render, Undo-Eintrag …
   onBeforeRun: (code) => console.debug(code),
   transformResult: (r) => roundValues(r, 2), // Ergebnis aufräumen
@@ -403,20 +409,62 @@ Der Prompt wird aus Teilen zusammengesetzt und als `systemPrompt: string[]` übe
 | `api.ts` (per `?raw`)     | TypeScript-Signaturen mit JSDoc, `@values`-Annotationen, Beispiele | Was das Modell aufrufen kann |
 | `knowledge.md` (optional) | FAQ, Domänenwissen, Glossar                                        | Fakten                       |
 
-Dieselbe API-Beschreibung geht zusätzlich als `toolDescription` an das evaluate-Tool. Sie ist
-**echtes TypeScript** — der Compiler prüft sie mit — und gleichzeitig die Doku für das Modell.
-Damit kann Code und Beschreibung nicht auseinanderdriften.
+Dieselbe API-Beschreibung geht zusätzlich als `toolDescription` an das evaluate-Tool.
+
+### Die Beschreibung ist ein Vertrag
 
 > **Die Beschreibung ist keine Dokumentation, sie ist eine Spezifikation.**
 >
-> Das Modell kann nur benutzen, was dort steht — und es benutzt *exakt* das. Ein erfundenes
-> Beispiel in dieser Datei ist deshalb kein Stilfehler, sondern ein Bug. Und ein besonders
-> tückischer: Er äußert sich als *Modellfehler*. Das Modell kopiert dein falsches Beispiel
+> Das Modell kann nur benutzen, was dort steht — und es benutzt *exakt* das. Eine erfundene
+> Signatur in dieser Datei ist deshalb kein Stilfehler, sondern ein Bug. Und ein besonders
+> tückischer: Er äußert sich als *Modellfehler*. Das Modell kopiert deine falsche Signatur
 > gehorsam, der Code scheitert, und du suchst den Fehler beim LLM statt in deiner Datei.
 >
-> In der FieldDraft-Integration ist genau das passiert: ein Beispiel mit einer Signatur, die es
-> so nie gab. Das Modell hat sie treu übernommen. **Schreib die Beispiele nicht aus dem Kopf —
-> kopier sie aus echtem, laufendem Code.**
+> In der FieldDraft-Integration ist genau das passiert: eine Signatur, die es so nie gab.
+
+Dagegen hilft kein Vorsatz, sondern nur der Compiler. `api.ts` deklariert deshalb ein
+**Interface**, und die Implementierung wird per Typannotation daran gebunden:
+
+```ts
+// agent/api.ts — was das Modell liest
+// @api-start
+interface AgentApi {
+  /** Adds a task. Defaults: status "todo", assignee "unassigned", estimate 1. */
+  addTask(input: { title: string; status?: Status; estimate?: number }): Task;
+  removeTask(id: number): { removed: number };
+  // …
+}
+// @api-end
+
+// Unterhalb des Markers: der Compiler sieht das, das Modell nie.
+export type { AgentApi };
+```
+
+```ts
+// agent/setup.ts — was der Agent erreicht
+const api: AgentApi = {
+  addTask: board.add,
+  removeTask: board.remove,
+  // …
+};
+```
+
+Damit kann die Beschreibung nicht mehr lügen. `tsc` fängt **alle drei** Drift-Richtungen:
+
+| Drift                                            | Fehler                                                     |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| Beschrieben, aber nicht implementiert            | `TS2741: Property 'archiveTask' is missing … in 'AgentApi'` |
+| Implementiert, aber nicht beschrieben            | `TS2353: 'deleteTask' does not exist in type 'AgentApi'`    |
+| Beschrieben mit falscher Signatur                | `TS2322: Type 'string' is not assignable to type 'number'`  |
+
+Die zweite Zeile ist der Grund, **die API-Funktionen einzeln aufzuzählen statt sie
+hineinzuspreaden**: `...createUIActions()` rutscht an der Excess-Property-Prüfung vorbei, und
+dann steht eine unbeschriebene Funktion im Scope des Modells, von der die Beschreibung nichts
+weiß.
+
+> **Was der Vertrag *nicht* prüft: die Beispiele.** Die stehen in `api.ts` in Kommentaren, der
+> Compiler sieht sie nicht. Für sie gilt weiterhin von Hand: **kopier sie aus echtem, laufendem
+> Code — schreib sie nicht aus dem Kopf.**
 
 ```mermaid
 graph LR
@@ -920,15 +968,24 @@ eingerichtet, kostet einen zweiten `node_modules`-Baum und lädt zur Versionsdri
 
 #### Phase 2 — Der Agent bedient die App
 
-1. **`api.ts` schreiben.** Signaturen mit JSDoc, `@values` für alles, was gültige Werte hat, und
-   zwei, drei Beispiel-Snippets. Die Beispiele sind erstaunlich wirksam.
-2. **API-Objekt implementieren.** Bevorzugt die Funktionen, die deine UI ohnehin aufruft —
-   dann laufen Validierung und Undo automatisch mit.
+1. **`api.ts` schreiben.** Ein `interface AgentApi` mit JSDoc, `@values` für alles, was gültige
+   Werte hat, und zwei, drei Beispiel-Snippets. Die Beispiele sind erstaunlich wirksam.
+2. **API-Objekt implementieren — und an `AgentApi` binden.** Bevorzugt die Funktionen, die deine
+   UI ohnehin aufruft; dann laufen Validierung und Undo automatisch mit. Die Annotation ist
+   Pflicht, nicht Geschmack: sie ist das Einzige, was Beschreibung und Implementierung
+   zusammenhält (siehe „Die Beschreibung ist ein Vertrag“).
 3. **Zusammenstecken:**
 
 ````ts
+// Einzeln aufzählen, nicht spreaden – ein Spread umgeht die Excess-Property-Prüfung.
+const api: AgentApi = {
+  ...
+  highlightElement: ui.highlightElement,
+  readUIState,
+};
+
 const evaluate = createEvaluator({
-  api: { ...meineApi, ...createUIActions(), readUIState },
+  api,
   onAfterRun: () => store.notify(),
   transformResult: (r) => roundValues(r, 2),
 });

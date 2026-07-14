@@ -30,8 +30,13 @@ const TYPE_ALIAS = /\/\/ @values (.+)\r?\n(\s*)type (\S+) = string;/g;
 /** `// @values <expr>` above `foo: string;` inside an interface */
 const INTERFACE_PROPERTY = /\/\/ @values (.+)\r?\n(\s*)(\S+): string;/g;
 
-/** Any annotation the passes above did not consume – never show it to the model. */
-const LEFTOVER = /[ \t]*\/\/ @values .*\r?\n?/g;
+/**
+ * Any annotation the passes above did not consume – never show it to the model.
+ *
+ * Deliberately matches the misplaced forms as well (inside a JSDoc block, or as a
+ * block comment), because those are exactly the ones that silently did nothing.
+ */
+const LEFTOVER = /[ \t]*(?:\/\/|\/\*|\*)[ \t]*@values .*\r?\n?/g;
 
 /** Optional markers that trim the source down to the part the model should see. */
 const SECTION_START = "// @api-start";
@@ -57,6 +62,7 @@ export function expandRuntimeTypes(source: string, context: Record<string, unkno
       `${indent}${name}:${buildUnion(evaluate(expression, context), indent)};`
   );
 
+  warnAboutLeftovers(result);
   result = result.replace(LEFTOVER, "");
 
   const start = result.indexOf(SECTION_START);
@@ -66,6 +72,26 @@ export function expandRuntimeTypes(source: string, context: Record<string, unkno
   }
 
   return result.trim();
+}
+
+/**
+ * An annotation that no pass consumed did nothing – and a silent no-op is
+ * indistinguishable from a working one. So say it out loud.
+ *
+ * This is not hypothetical: the FieldDraft integration wrote its annotations
+ * into a JSDoc block, no pass matched, and for months the model was handed the
+ * literal word "@values" instead of the live values – while the host believed
+ * the mechanism was working. Costing a warning is cheaper than costing that.
+ */
+function warnAboutLeftovers(source: string): void {
+  for (const [annotation] of source.matchAll(LEFTOVER)) {
+    console.warn(
+      `[baseaichat] @values annotation had no effect: ${annotation.trim()}\n` +
+        "  It must be a line comment (// @values <expr>) directly above " +
+        "`type Foo = string;` or `foo: string;`. Inside a JSDoc block, or anywhere " +
+        "else, it is ignored – and the model sees the bare `string` type."
+    );
+  }
 }
 
 /**

@@ -21,6 +21,14 @@ Architektur, Sicherheitsmodell und Integrationsanleitung stehen in `README.md`.
 
 ## Kritische Stellen
 
+- **Die API-Beschreibung ist ein Vertrag, keine Doku.** `agent/api.ts` deklariert ein
+  `interface AgentApi`; `agent/setup.ts` bindet die Implementierung per Typannotation
+  (`const api: AgentApi = {…}`) daran. Das ist das Einzige, was verhindert, dass das Modell
+  eine Signatur liest, die es nicht gibt — der Bug äußert sich sonst als *Modellfehler*.
+  Deshalb: API-Funktionen **einzeln aufzählen, nie spreaden** (ein Spread umgeht die
+  Excess-Property-Prüfung), und `EvaluatorOptions.api` ist bewusst `object` und nicht
+  `Record<string, unknown>` — ein Interface hat keine implizite Index-Signatur, ein `Record`
+  würde genau das Objekt ablehnen, das man übergeben soll.
 - **Das API-Objekt ist die Sicherheitsgrenze**, nicht der Guard. Der Guard
   (`web/src/core/guard.ts`) hindert den Code am Ausbruch *aus* der API; was die API darf,
   entscheidet die App. Er ist blocklist-basiert (Escapes, Globale, Prototype-Chain) und
