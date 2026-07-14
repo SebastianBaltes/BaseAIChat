@@ -910,6 +910,32 @@ export const aichatAlias = [
 ];
 ```
 
+Diese Map löst zur *Laufzeit* auf — Vite und Vitest. **`tsc` hat davon nichts** und braucht sein
+eigenes `paths` in der `tsconfig.json`. Und genau dort steht die fieseste Falle des ganzen
+Verfahrens:
+
+> **Spiegle die Alias-Map nicht eins zu eins nach `paths`.** Für `tsc` zeigt
+> `"react": ["./node_modules/react"]` auf den **JavaScript**-Runtime-Eintrag des Pakets — und
+> schneidet damit `@types/react` ab. Jedes `import React` degradiert zu implizitem `any`, und
+> zwar **auch in den Dateien der Lib**. Der Fehler erscheint also in fremdem Code, während die
+> Ursache in deiner eigenen Config steht. Zeig für die Typen auf `@types/*`:
+>
+> ```jsonc
+> "paths": {
+>   "baseaichat": ["./third_party/baseaichat/web/src/index.ts"],
+>   "react": ["./node_modules/@types/react"],          // nicht ./node_modules/react
+>   "react-dom": ["./node_modules/@types/react-dom"]
+> }
+> ```
+
+Hat man das einmal richtig, löst `tsc` `"baseaichat"` auf den **echten Quellcode** auf — und dann
+braucht man auch keine handgeschriebene `baseaichat.d.ts` mehr. Eine solche Deklarationsdatei ist
+dasselbe Anti-Muster wie eine unverbundene API-Beschreibung, nur eine Ebene höher: eine
+Behauptung über fremden Code, die niemand prüft. In FieldDraft war sie falsch — `UIActions` war
+dort als `Record<string, (...args: never[]) => unknown>` deklariert, so lose, dass eine Bindung an
+eine Funktion, *die es gar nicht gibt*, anstandslos durchging. Genau die Drift, gegen die der
+Vertrag antritt, kam durch die Hintertür wieder herein. Lösch die Datei, statt sie zu korrigieren.
+
 **B — Deps im Lib-Verzeichnis installieren** (`cd third_party/baseaichat/web && npm install`) und
 `resolve.dedupe: ["react", "react-dom"]` setzen, damit React einfach bleibt. Schneller
 eingerichtet, kostet einen zweiten `node_modules`-Baum und lädt zur Versionsdrift ein.

@@ -1,6 +1,6 @@
 {
   "name": "baseaichat",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "license": "MIT",
   "description": "Reusable chat component: a browser-side AI agent that can read and operate the host app, with a Go proxy keeping the API key server-side.",
