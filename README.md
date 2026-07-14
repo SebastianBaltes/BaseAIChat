@@ -1018,6 +1018,62 @@ export const agentOptions = (): ChatAgentOptions => {
 
 ***
 
+## WebMCP — die App für fremde Agenten öffnen
+
+[WebMCP](https://developer.chrome.com/docs/ai/webmcp) erlaubt einer Seite, Tools zu
+registrieren, die ein Agent *außerhalb* der Seite aufrufen kann — Chromes eingebauter, oder
+eine Extension. Unser Evaluator passt zufällig exakt auf dessen Vertrag: ein WebMCP-Tool nimmt
+ein Objekt und gibt einen String zurück, und `Evaluator` **ist** bereits
+`(input: { code }) => Promise<string>`. Der ganze Export ist deshalb ein Aufruf:
+
+```ts
+import { registerEvaluateTool } from "baseaichat";
+
+const ok = await registerEvaluateTool({
+  evaluate,                      // aus createEvaluator()
+  description: apiBeschreibung,  // derselbe String wie toolDescription
+  confirm: (code) => bestätigenLassen(code),   // optional, siehe unten
+});
+// ok === false: dieser Browser kann kein WebMCP. Das ist der Normalfall.
+```
+
+### Was du damit tust
+
+> **Du gibst einem fremden Agenten dasselbe Arbitrary-JavaScript-Tool, das dein eigenes Modell
+> hat.**
+>
+> Der Guard hindert diesen Code weiterhin daran, aus der API *auszubrechen* — aber er war nie
+> dafür da, ihn am *Benutzen* der API zu hindern. Und der Aufrufer ist jetzt kein Modell mehr,
+> das du geprompted hast. Damit wird Seiteninhalt zum Injection-Vektor: was ein Angreifer einen
+> fremden Agenten lesen lässt, kann dieser Agent von diesem Tool ausführen lassen — mit der
+> vollen Reichweite deines API-Objekts.
+>
+> Es gilt also dieselbe Regel wie immer, nur schärfer: **das API-Objekt ist die
+> Sicherheitsgrenze.** Registriere das nur, wenn du diese API auch einem Fremden geben würdest.
+> Kann sie löschen, bezahlen oder versenden, gehört `confirm` davor.
+
+Granulare Tools (ein WebMCP-Tool pro API-Funktion) wären das idiomatischere Modell und die
+engere Leine. Sie kosten aber JSON-Schemas pro Funktion, und die Übersetzung ist verlustbehaftet:
+ein WebMCP-Tool hat `inputSchema`, aber **keinen Rückgabetyp** — es gibt einen String zurück.
+`listTasks(): Task[]` hätte dort keinen Platz, und genau die Rückgabetypen braucht ein Modell,
+um Aufrufe zu verketten. Das ist bewusst Phase 2.
+
+### Reifegrad — lies das, bevor du darauf baust
+
+WebMCP ist **kein W3C-Standard**, sondern ein Community-Group-Draft (Google + Microsoft,
+Februar 2026), und er bewegt sich: `provideContext()` ist im März entfallen,
+`navigator.modelContext` ist in Chrome 150 zugunsten von `document.modelContext` deprecated.
+Chrome 149–156 fahren einen Origin Trial; ohne Trial-Token oder das Flag
+`chrome://flags/#enable-webmcp-testing` ist die API schlicht nicht da, und kein anderer Browser
+liefert sie aus. Kein großer Agent ruft WebMCP-Tools auf Websites bislang auf.
+
+Deshalb liegt das in einem eigenen Modul, ist opt-in und gibt `false` zurück statt zu werfen:
+nichts sonst in der Bibliothek hängt daran, und ein Host auf einem Browser ohne WebMCP läuft
+einfach weiter. `registerEvaluateTool` findet beide Einhängepunkte, damit eine Seite über das
+Origin-Trial-Fenster hinweg funktioniert.
+
+***
+
 ## Tests
 
 ```bash

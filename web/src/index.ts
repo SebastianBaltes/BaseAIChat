@@ -38,6 +38,11 @@ export type { UINode, UIStateOptions } from "./browser/uiState";
 export { createUIActions } from "./browser/uiActions";
 export type { UIActionOptions, UIActions } from "./browser/uiActions";
 
+// Opt-in: exposes the evaluator to agents outside the page. Read the module's
+// header before you call it – it widens who may run code against your API.
+export { registerEvaluateTool } from "./browser/webmcp";
+export type { EvaluateToolOptions } from "./browser/webmcp";
+
 // Providers.
 export { createModel } from "./providers/createModel";
 export type { ModelOptions, ProviderName } from "./providers/createModel";
