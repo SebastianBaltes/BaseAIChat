@@ -19,6 +19,7 @@ import {
   type ChangeEvent,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
@@ -54,6 +55,12 @@ export interface ChatPanelProps {
   showToolActivity?: boolean;
   /** Initial panel size in pixels. */
   defaultSize?: { width: number; height: number };
+  /**
+   * Rendered in the header, between the title and the action buttons – a slot
+   * for host controls like a model picker. The panel owns nothing about it: what
+   * it does and how it looks is entirely yours.
+   */
+  headerExtra?: ReactNode;
 }
 
 const MIN_WIDTH = 320;
@@ -70,6 +77,7 @@ export function ChatPanel({
   allowImages = true,
   showToolActivity = true,
   defaultSize = { width: 420, height: 560 },
+  headerExtra,
 }: ChatPanelProps) {
   const { messages, busy, error, send, cancel, clear } = useChatAgent(agent);
 
@@ -165,6 +173,7 @@ export function ChatPanel({
 
       <header className="bac-header">
         <h2>{title}</h2>
+        {headerExtra && <div className="bac-header-extra">{headerExtra}</div>}
         <div className="bac-header-actions">
           <button type="button" onClick={clear} title="Clear conversation" aria-label="Clear conversation">
             ⟲

@@ -111,6 +111,17 @@
   font-size: 15px;
   font-weight: 600;
 }
+/**
+ * The host slot. `margin-left: auto` eats the free space to its left, so the
+ * title stays pinned left while the slot and the action buttons group at the
+ * right – rather than the header's space-between pushing the slot to the centre.
+ * `min-width: 0` lets a wide control (a long model name) shrink instead of
+ * overflowing the header.
+ */
+.bac-header-extra {
+  margin-left: auto;
+  min-width: 0;
+}
 
 .bac-header-actions {
   display: flex;

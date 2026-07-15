@@ -741,8 +741,15 @@ und können sich nicht gegenseitig ins Gehege kommen.
   allowImages={true}
   showToolActivity={true}
   defaultSize={{ width: 420, height: 560 }}
+  headerExtra={<ModelPicker />}   // eigener Slot im Header, siehe unten
 />
 ```
+
+`headerExtra` rendert einen beliebigen Knoten im Header, zwischen Titel und den Action-Buttons —
+gedacht für Host-Steuerung wie einen Modell-Umschalter. Das Panel besitzt nichts daran: Inhalt,
+Verhalten und Aussehen liegen bei dir. Der Slot rückt per `margin-left: auto` an die Action-Buttons
+heran, der Titel bleibt links. Die Modellwahl selbst liegt ohnehin auf deiner Seite (`agentOptions()`
+baut den Agent neu, sobald sich `model` ändert), das Panel liefert nur den Platz.
 
 Launcher-Button, resizables Panel, Markdown (marked + DOMPurify), Bild-Anhänge, Abbrechen,
 Verlauf löschen, Typing-Indikator, Streaming-Cursor — und die **aufklappbare Tool-Aktivität**:
