@@ -176,7 +176,7 @@ export function ChatPanel({
         {headerExtra && <div className="bac-header-extra">{headerExtra}</div>}
         <div className="bac-header-actions">
           <button type="button" onClick={clear} title="Clear conversation" aria-label="Clear conversation">
-            ⟲
+            🗑
           </button>
           <button type="button" onClick={() => setOpen(false)} title="Close" aria-label="Close chat">
             ✕
