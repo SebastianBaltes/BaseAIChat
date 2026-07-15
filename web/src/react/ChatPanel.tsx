@@ -248,7 +248,7 @@ export function ChatPanel({
                 onClick={() => fileRef.current?.click()}
                 aria-label="Attach a screenshot"
               >
-                🖼
+                📎
               </button>
             </>
           ) : (
