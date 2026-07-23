@@ -61,6 +61,13 @@ export interface ChatPanelProps {
    * it does and how it looks is entirely yours.
    */
   headerExtra?: ReactNode;
+  /**
+   * Rendered as its own full-width row directly below the header, above the
+   * message list – a slot for host controls that need more room than the
+   * header's single line (e.g. a model picker with a long label). Like
+   * `headerExtra`, the panel owns nothing about its content.
+   */
+  subheader?: ReactNode;
 }
 
 const MIN_WIDTH = 320;
@@ -78,6 +85,7 @@ export function ChatPanel({
   showToolActivity = true,
   defaultSize = { width: 420, height: 560 },
   headerExtra,
+  subheader,
 }: ChatPanelProps) {
   const { messages, busy, error, send, cancel, clear } = useChatAgent(agent);
 
@@ -183,6 +191,8 @@ export function ChatPanel({
           </button>
         </div>
       </header>
+
+      {subheader && <div className="bac-subheader">{subheader}</div>}
 
       <div className="bac-messages" ref={listRef}>
         {messages.length === 0 && greeting && <div className="bac-greeting">{greeting}</div>}

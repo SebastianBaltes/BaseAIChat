@@ -144,6 +144,16 @@
   color: var(--bac-text);
 }
 
+/*
+ * The host slot below the header. Its own row (rather than squeezed into the
+ * header's single line) for controls that need more width, e.g. a model
+ * picker with a long label.
+ */
+.bac-subheader {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--bac-border);
+}
+
 /* ── Messages ─────────────────────────────────────────────────────────────── */
 
 .bac-messages {
